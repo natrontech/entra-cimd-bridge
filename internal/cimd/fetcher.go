@@ -39,6 +39,9 @@ type Options struct {
 // maxRedirects is how many redirects a fetch follows, each of which must stay on https and on a host the policy allows
 const maxRedirects = 3
 
+// maxHeaderBytes caps the response headers of a document host, which would otherwise be allowed 10 MiB next to a body of a few KiB
+const maxHeaderBytes = 64 << 10
+
 // Fetcher resolves client IDs to their validated metadata documents, caching them as their HTTP cache headers allow
 // The cache only saves fetches, so the bridge stays stateless
 type Fetcher struct {
@@ -86,14 +89,15 @@ func NewFetcher(policy Policy, opts Options) *Fetcher {
 	dialer := &net.Dialer{Timeout: opts.Timeout, Control: dialControl(func(a netip.AddrPort) bool { return f.refuse(a) })}
 	transport := &http.Transport{
 		// A proxy would connect to the target itself, so the dial check would only ever see the proxy's address
-		Proxy:                 nil,
-		DialContext:           dialer.DialContext,
-		TLSClientConfig:       &tls.Config{RootCAs: opts.RootCAs, MinVersion: tls.VersionTLS12},
-		TLSHandshakeTimeout:   opts.Timeout,
-		ResponseHeaderTimeout: opts.Timeout,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          20,
-		IdleConnTimeout:       90 * time.Second,
+		Proxy:                  nil,
+		DialContext:            dialer.DialContext,
+		TLSClientConfig:        &tls.Config{RootCAs: opts.RootCAs, MinVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout:    opts.Timeout,
+		ResponseHeaderTimeout:  opts.Timeout,
+		MaxResponseHeaderBytes: maxHeaderBytes,
+		ForceAttemptHTTP2:      true,
+		MaxIdleConns:           20,
+		IdleConnTimeout:        90 * time.Second,
 	}
 	f.client = &http.Client{
 		Timeout:   opts.Timeout,
