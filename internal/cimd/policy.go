@@ -23,13 +23,20 @@ func NewPolicy(patterns []string) (Policy, error) {
 		if pattern != "*" && (rest == "" || strings.ContainsAny(rest, "*/:@ ")) {
 			return Policy{}, fmt.Errorf("client metadata host %q must be a host name, *.domain or *", raw)
 		}
+		if !isASCII(pattern) {
+			return Policy{}, fmt.Errorf("client metadata host %q must be written in ASCII, with punycode for international names", raw)
+		}
 		p.patterns = append(p.patterns, pattern)
 	}
 	return p, nil
 }
 
 // Allows reports whether host may serve client metadata documents
+// Hosts that aren't ASCII are never allowed, since Unicode lowercasing can turn one into an allowed name while the connection goes to its punycode, a different domain
 func (p Policy) Allows(host string) bool {
+	if !isASCII(host) {
+		return false
+	}
 	host = strings.ToLower(host)
 	for _, pattern := range p.patterns {
 		switch {
@@ -40,4 +47,13 @@ func (p Policy) Allows(host string) bool {
 		}
 	}
 	return false
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }

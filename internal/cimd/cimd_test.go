@@ -131,11 +131,16 @@ func TestPolicy(t *testing.T) {
 	assert.False(t, p.Allows("evilexample.com"))
 	assert.False(t, p.Allows("claude.ai.evil.example"))
 
+	// Unicode lowercasing turns U+0130 into i, while the connection would go to the punycode of the original, a different domain
+	github, err := NewPolicy([]string{"github.com"})
+	require.NoError(t, err)
+	assert.False(t, github.Allows("g\u0130thub.com"))
+
 	any, err := NewPolicy([]string{"*"})
 	require.NoError(t, err)
 	assert.True(t, any.Allows("anything.example"))
 
-	for _, bad := range [][]string{nil, {"https://claude.ai"}, {"*.*.example.com"}, {"*."}, {"claude.ai/path"}} {
+	for _, bad := range [][]string{nil, {"https://claude.ai"}, {"*.*.example.com"}, {"*."}, {"claude.ai/path"}, {"bücher.example"}} {
 		_, err := NewPolicy(bad)
 		assert.Error(t, err, bad)
 	}
@@ -314,6 +319,16 @@ func TestFetchChecksEveryRedirect(t *testing.T) {
 	require.ErrorIs(t, err, errBlocked)
 	assert.EqualValues(t, 1, start.fetches.Load())
 	assert.EqualValues(t, 0, target.fetches.Load())
+}
+
+func TestFetchRefusesRedirectsToHostsOutsideThePolicy(t *testing.T) {
+	target := newDocumentServer(t, serveDocument(""))
+	start := newDocumentServer(t, func(w http.ResponseWriter, r *http.Request, _ string) {
+		http.Redirect(w, r, strings.Replace(target.URL, "127.0.0.1", "localhost", 1)+"/client.json", http.StatusFound)
+	})
+	_, err := start.fetcher(t, Options{}).Fetch(t.Context(), start.URL+"/client.json")
+	require.ErrorContains(t, err, "isn't allowed to serve client metadata documents")
+	assert.EqualValues(t, 0, target.fetches.Load(), "an open redirect on an allowed host can't lead to a host the policy leaves out")
 }
 
 func TestFetchRefusesRedirectsAwayFromHTTPS(t *testing.T) {

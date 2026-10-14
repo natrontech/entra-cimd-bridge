@@ -36,7 +36,7 @@ type Options struct {
 	Observe func(outcome string)
 }
 
-// maxRedirects is how many redirects a fetch follows, each of which must stay on https
+// maxRedirects is how many redirects a fetch follows, each of which must stay on https and on a host the policy allows
 const maxRedirects = 3
 
 // Fetcher resolves client IDs to their validated metadata documents, caching them as their HTTP cache headers allow
@@ -104,6 +104,11 @@ func NewFetcher(policy Policy, opts Options) *Fetcher {
 			}
 			if req.URL.Scheme != "https" {
 				return errors.New("redirect to a URL that isn't https")
+			}
+
+			// Otherwise an open redirect on an allowed host would let any host serve documents in its name
+			if !f.policy.Allows(req.URL.Hostname()) {
+				return fmt.Errorf("redirect to %s, which isn't allowed to serve client metadata documents", req.URL.Hostname())
 			}
 			return nil
 		},
