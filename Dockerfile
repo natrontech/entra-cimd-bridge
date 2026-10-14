@@ -23,6 +23,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 FROM gcr.io/distroless/static:nonroot
 COPY --from=build /out/bridge /bridge
 EXPOSE 8080 9090
-USER nonroot:nonroot
+
+USER 65532:65532
 ENTRYPOINT ["/bridge"]
 CMD ["--config", "/etc/bridge/config.yaml"]
