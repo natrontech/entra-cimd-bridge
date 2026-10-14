@@ -1,0 +1,20 @@
+/bin
+coverage.out
+coverage-summary.txt
+
+# Local runs
+/config.yaml
+.env
+.env.*
+
+# Helm
+/chart/*/charts/
+*.tgz
+
+# CI caches
+/.cache
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,130 @@
+workflow:
+  auto_cancel:
+    on_new_commit: interruptible
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"
+
+stages:
+  - test
+  - publish
+
+default:
+  interruptible: true
+  tags:
+    - natron-ci
+
+variables:
+  GO_VERSION: "1.27"
+  # 2.14 is the first release that reads Go 1.27's export data
+  GOLANGCI_LINT_VERSION: "2.14.0"
+  HELM_VERSION: "3.19.0"
+  HARBOR_REGISTRY: "harbor.natron.services"
+  HARBOR_REPOSITORY: "harbor.natron.services/natron-public/entra-cimd-bridge"
+  HELM_REPOSITORY: "oci://harbor.natron.services/natron-helm"
+
+.release:
+  stage: publish
+  interruptible: false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/'
+
+.go-cache:
+  cache:
+    key: "go-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - .cache/go-build
+      - .cache/go-mod
+  variables:
+    GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
+    GOMODCACHE: "$CI_PROJECT_DIR/.cache/go-mod"
+
+.buildah:
+  tags:
+    - natron-ci-privileged # buildah needs privileged, runs under kata
+  image: quay.io/buildah/stable:latest
+  variables:
+    KUBERNETES_MEMORY_REQUEST: "2560Mi"
+    KUBERNETES_MEMORY_LIMIT: "2560Mi"
+    BUILDAH_FORMAT: docker
+
+go-test:
+  extends: .go-cache
+  stage: test
+  image: "golang:${GO_VERSION}"
+  script:
+    - go mod tidy
+    - git diff --exit-code -- go.mod go.sum
+    - go test -race -coverprofile=coverage.out ./...
+    - go tool cover -func=coverage.out | tee coverage-summary.txt
+  coverage: '/total:\s+\(statements\)\s+([0-9.]+)%/'
+  artifacts:
+    when: always
+    paths:
+      - coverage.out
+      - coverage-summary.txt
+    expire_in: 1 week
+
+go-lint:
+  stage: test
+  image: "golangci/golangci-lint:v${GOLANGCI_LINT_VERSION}-alpine"
+  script:
+    - golangci-lint run --timeout 5m ./...
+  variables:
+    KUBERNETES_MEMORY_REQUEST: "2560Mi"
+    KUBERNETES_MEMORY_LIMIT: "2560Mi"
+
+helm-lint:
+  stage: test
+  image: "alpine/helm:${HELM_VERSION}"
+  script:
+    - helm lint chart
+    - helm template ci chart --set ingress.enabled=true --set metrics.serviceMonitor.enabled=true > /dev/null
+
+build-image:
+  extends: .buildah
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG'
+      when: never
+    - when: on_success
+  script:
+    - |
+      buildah --storage-driver overlay --root "$CI_BUILDS_DIR/containers-storage" build \
+        --file Dockerfile \
+        --platform linux/amd64 \
+        --build-arg "VERSION=0.0.0-ci" \
+        --tag "entra-cimd-bridge:ci" \
+        .
+
+publish-image:
+  extends:
+    - .release
+    - .buildah
+  before_script:
+    - printf '%s' "$HARBOR_PASSWORD" | buildah login "$HARBOR_REGISTRY" --username "$HARBOR_USERNAME" --password-stdin
+  script:
+    - |
+      buildah --storage-driver overlay --root "$CI_BUILDS_DIR/containers-storage" build \
+        --file Dockerfile \
+        --platform linux/amd64 \
+        --build-arg "VERSION=$CI_COMMIT_TAG" \
+        --label "org.opencontainers.image.title=entra-cimd-bridge" \
+        --label "org.opencontainers.image.source=$CI_PROJECT_URL" \
+        --label "org.opencontainers.image.revision=$CI_COMMIT_SHA" \
+        --label "org.opencontainers.image.version=$CI_COMMIT_TAG" \
+        --tag "${HARBOR_REPOSITORY}:${CI_COMMIT_TAG}" \
+        --tag "${HARBOR_REPOSITORY}:latest" \
+        .
+    - buildah --storage-driver overlay --root "$CI_BUILDS_DIR/containers-storage" push "${HARBOR_REPOSITORY}:${CI_COMMIT_TAG}"
+    - buildah --storage-driver overlay --root "$CI_BUILDS_DIR/containers-storage" push "${HARBOR_REPOSITORY}:latest"
+
+# The chart is released with the image, both carrying the tag's version
+publish-chart:
+  extends: .release
+  image: "alpine/helm:${HELM_VERSION}"
+  script:
+    - printf '%s' "$HARBOR_PASSWORD" | helm registry login "$HARBOR_REGISTRY" --username "$HARBOR_USERNAME" --password-stdin
+    - helm package chart --version "$CI_COMMIT_TAG" --app-version "$CI_COMMIT_TAG"
+    - helm push "entra-cimd-bridge-${CI_COMMIT_TAG}.tgz" "$HELM_REPOSITORY"

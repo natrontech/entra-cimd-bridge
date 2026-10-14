@@ -1,0 +1,36 @@
+# The bridge's public URL, which every MCP server lists as its authorization server
+issuer: https://mcp-auth.natron.ch
+
+# Where the OAuth endpoints and /metrics listen
+listen: ":8080"
+metrics_listen: ":9090"
+
+# Keys of at least 32 bytes that sign the state and the consent cookie: the first signs, all verify
+# To rotate, put the new key first, keep the old one for consent_ttl, then drop it
+# openssl rand -base64 48
+signing_keys:
+  - ${BRIDGE_KEY_CURRENT}
+
+# The IdPs, found through OIDC discovery at startup
+providers:
+  entra:
+    issuer: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+
+clients:
+  # Hosts whose client metadata documents are accepted: a host, *.domain, or * for any
+  # Claude Code, Claude Desktop and claude.ai: claude.ai, Codex: chatgpt.com, VS Code: vscode.dev
+  cimd_hosts: [claude.ai, chatgpt.com, vscode.dev]
+
+# How long an approval is remembered per client and MCP server in the browser, 0 asks every time
+consent_ttl: 720h
+
+# One entry per MCP server, each with its own app registration so codes and refresh tokens can't cross between them
+resources:
+  - uri: https://contactr.natron.ch/mcp
+    name: Contactr
+    provider: entra
+    client_id: ${CONTACTR_CLIENT_ID}
+    client_secret: ${CONTACTR_CLIENT_SECRET}
+    scopes:
+      - api://${CONTACTR_CLIENT_ID}/access_as_user
+      - offline_access

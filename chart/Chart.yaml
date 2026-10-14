@@ -1,0 +1,6 @@
+apiVersion: v2
+name: entra-cimd-bridge
+description: OAuth authorization server with Client ID Metadata Documents for MCP clients, in front of Entra ID or another IdP without them
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

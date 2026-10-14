@@ -1,0 +1,29 @@
+{{define "content"}}
+<h1>Allow {{.ClientName}} to use {{.ResourceName}}?</h1>
+<p>If you allow it, you sign in next, and {{.ClientName}} can then use {{.ResourceName}} as you.</p>
+<dl>
+  <div>
+    <dt>App</dt>
+    <dd><strong>{{.ClientName}}</strong> <span class="note">registered at <code>{{.ClientHost}}</code></span></dd>
+  </div>
+  <div>
+    <dt>Access goes to</dt>
+    <dd><code>{{.RedirectHost}}</code></dd>
+  </div>
+  <div>
+    <dt>MCP server</dt>
+    <dd><strong>{{.ResourceName}}</strong> <span class="note"><code>{{.ResourceURI}}</code></span></dd>
+  </div>
+</dl>
+{{if .Loopback}}
+<p class="warning"><strong>Only continue if you just connected {{.ClientName}} on this computer.</strong> The access goes to a program on this computer at <code>{{.RedirectHost}}</code>, and any program here could pretend to be {{.ClientName}}. If you didn't just start this, cancel.</p>
+{{end}}
+<form method="post" action="/consent">
+  <input type="hidden" name="request" value="{{.Request}}">
+  <div class="actions">
+    <button type="submit" name="decision" value="deny" class="secondary">Cancel</button>
+    <button type="submit" name="decision" value="allow" class="primary">Allow</button>
+  </div>
+</form>
+{{if .Remember}}<p class="note">This browser remembers your approval for {{.Remember}}.</p>{{end}}
+{{end}}
