@@ -76,7 +76,8 @@ func (s *Server) exchange(r *http.Request) (*upstream.Token, *resource, *tokenEr
 		return nil, nil, &tokenError{http.StatusBadRequest, "unsupported_grant_type", "Only authorization_code and refresh_token are supported."}
 	}
 
-	// The client is checked like at authorization, so a client from a host that is no longer allowed can't refresh either
+	// The client is checked like at authorization, so the request comes from a client the bridge still accepts
+	// Nothing ties the code or refresh token to that client, so cutting off one that already holds grants takes revoking them at the IdP
 	clientID, problem := publicClientID(r)
 	if problem != "" {
 		return nil, nil, &tokenError{http.StatusUnauthorized, "invalid_client", problem}

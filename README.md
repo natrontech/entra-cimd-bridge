@@ -75,7 +75,7 @@ Replicas share nothing but the signing keys, so the bridge scales freely. With t
 | `listen`, `metrics_listen` | `:8080` and `:9090` by default. `/metrics` has its own listener, so it never faces the internet |
 | `signing_keys` | Keys of at least 32 bytes for the state and the consent cookie. The first signs, all verify: to rotate, put a new key first and drop the old one after `consent_ttl` |
 | `providers.<name>.issuer` | An IdP, loaded through OIDC discovery at startup. A provider that lists `code_challenge_methods_supported` without `S256` is refused; Entra lists none and supports S256 |
-| `clients.cimd_hosts` | Hosts allowed to serve client metadata documents: a host, `*.domain`, or `*`. Claude's apps use `claude.ai`, Codex `chatgpt.com` and VS Code `vscode.dev` |
+| `clients.cimd_hosts` | Hosts allowed to serve client metadata documents: a host, `*.domain`, or `*`. Claude's apps use `claude.ai`, Codex `chatgpt.com` and VS Code `vscode.dev`. Removing a host stops new sign-ins, but refresh tokens its clients already hold keep working until they are revoked at the IdP |
 | `consent_ttl` | How long an approval is remembered per client and MCP server, `0` to ask every time |
 | `resources` | One entry per MCP server: its canonical `uri`, a `name` for the consent page, the `provider`, the `client_id` and `client_secret` of its app registration, and the `scopes` to request |
 
