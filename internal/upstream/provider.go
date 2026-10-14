@@ -63,8 +63,11 @@ func Discover(ctx context.Context, name, issuer string, client *http.Client) (*P
 		return nil, fmt.Errorf("provider %s: discovery lists no authorization or token endpoint", name)
 	}
 
-	// Without a list, RFC 8414 makes client_secret_basic the default
+	// Without a list, RFC 8414 makes client_secret_basic the default, while a list without either secret method rules a provider out like one without S256
 	methods := claims.TokenEndpointAuthMethods
+	if len(methods) > 0 && !slices.Contains(methods, "client_secret_basic") && !slices.Contains(methods, "client_secret_post") {
+		return nil, fmt.Errorf("provider %s doesn't accept a client secret, it only lists %s", name, strings.Join(methods, ", "))
+	}
 	basic := len(methods) == 0 || (slices.Contains(methods, "client_secret_basic") && !slices.Contains(methods, "client_secret_post"))
 	return &Provider{
 		Name:                  name,

@@ -54,6 +54,16 @@ func TestDiscoveryRequiresS256OnlyWhenMethodsAreListed(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDiscoveryRequiresAClientSecretMethodWhenMethodsAreListed(t *testing.T) {
+	srv := discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"private_key_jwt"}}, nil)
+	_, err := Discover(t.Context(), "jwt-only", srv.URL, srv.Client())
+	require.ErrorContains(t, err, "client secret")
+
+	srv = discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"private_key_jwt", "client_secret_post"}}, nil)
+	_, err = Discover(t.Context(), "post", srv.URL, srv.Client())
+	require.NoError(t, err)
+}
+
 func TestTokenSendsCredentialsTheWayTheProviderPrefers(t *testing.T) {
 	var got *http.Request
 	answer := func(w http.ResponseWriter, r *http.Request) {
