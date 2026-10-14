@@ -2,7 +2,7 @@
 replicaCount: 2
 
 image:
-  repository: harbor.natron.services/natron-public/entra-cimd-bridge
+  repository: ghcr.io/natrontech/entra-cimd-bridge
   # Defaults to the chart's appVersion
   tag: ""
   pullPolicy: IfNotPresent

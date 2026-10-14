@@ -1,4 +1,4 @@
-module gitlab.com/natrontech/applications/entra-cimd-bridge
+module github.com/natrontech/entra-cimd-bridge
 
 go 1.27.1
 

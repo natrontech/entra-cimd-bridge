@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/cimd"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/config"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/server"
+	"github.com/natrontech/entra-cimd-bridge/internal/cimd"
+	"github.com/natrontech/entra-cimd-bridge/internal/config"
+	"github.com/natrontech/entra-cimd-bridge/internal/server"
 )
 
 // RedirectURI is where the test client receives codes, a loopback address the client's document registers without a port

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/signing"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/upstream"
+	"github.com/natrontech/entra-cimd-bridge/internal/signing"
+	"github.com/natrontech/entra-cimd-bridge/internal/upstream"
 )
 
 // handleCallback passes the IdP's code on to the client, unchanged, at the redirect URI the signed state names

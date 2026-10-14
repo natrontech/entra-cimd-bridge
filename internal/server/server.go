@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/cimd"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/config"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/signing"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/upstream"
+	"github.com/natrontech/entra-cimd-bridge/internal/cimd"
+	"github.com/natrontech/entra-cimd-bridge/internal/config"
+	"github.com/natrontech/entra-cimd-bridge/internal/signing"
+	"github.com/natrontech/entra-cimd-bridge/internal/upstream"
 )
 
 const (

@@ -22,8 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/testenv"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/resource"
+	"github.com/natrontech/entra-cimd-bridge/internal/testenv"
+	"github.com/natrontech/entra-cimd-bridge/resource"
 )
 
 // mcpServer is an MCP server that sends clients to the bridge and accepts only IdP tokens for its own API

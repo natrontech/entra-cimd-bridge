@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/cimd"
+	"github.com/natrontech/entra-cimd-bridge/internal/cimd"
 )
 
 const (

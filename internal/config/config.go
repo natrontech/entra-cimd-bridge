@@ -13,8 +13,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/cimd"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/signing"
+	"github.com/natrontech/entra-cimd-bridge/internal/cimd"
+	"github.com/natrontech/entra-cimd-bridge/internal/signing"
 )
 
 // Config is the whole configuration of a bridge

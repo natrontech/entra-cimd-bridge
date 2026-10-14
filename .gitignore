@@ -11,9 +11,6 @@ coverage-summary.txt
 /chart/*/charts/
 *.tgz
 
-# CI caches
-/.cache
-
 # OS and editors
 .DS_Store
 .idea/

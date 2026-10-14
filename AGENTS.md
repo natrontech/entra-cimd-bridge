@@ -19,7 +19,6 @@ It passes the IdP's codes and tokens through unchanged; `README.md` explains the
 ## Rules
 
 - Commit messages follow Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:` …).
-- Every user-visible change adds a line under `# Unreleased` in `CHANGELOG.md`; never invent a version heading.
 - Releases follow Semantic Versioning: a tag like `0.2.0`, without a `v`, publishes the image and the chart with that version.
   Breaking changes to the config, the chart's values or the `resource` package bump the major version, or the minor one while it is `0.x`.
 - The bridge stays stateless and issues no tokens of its own: anything it needs back later travels signed through the IdP or a cookie.

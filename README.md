@@ -52,16 +52,20 @@ The bridge doesn't issue tokens of its own, has no database and doesn't proxy MC
 
 ## Running
 
-The bridge is a single static binary, published as `harbor.natron.services/natron-public/entra-cimd-bridge` (distroless) with a Helm chart in [`chart/`](chart).
+The bridge is a single static binary, published as `ghcr.io/natrontech/entra-cimd-bridge` (distroless) with a Helm chart in [`chart/`](chart), published as `oci://ghcr.io/natrontech/charts/entra-cimd-bridge`.
 
 ```sh
 docker run -p 8080:8080 -v ./config.yaml:/etc/bridge/config.yaml:ro \
   -e BRIDGE_KEY_CURRENT="$(openssl rand -base64 48)" \
   -e ENTRA_TENANT_ID=… -e CONTACTR_CLIENT_ID=… -e CONTACTR_CLIENT_SECRET=… \
-  harbor.natron.services/natron-public/entra-cimd-bridge:latest
+  ghcr.io/natrontech/entra-cimd-bridge:latest
 ```
 
 Replicas share nothing but the signing keys, so the bridge scales freely. With the chart, the configuration goes under `config:` in the values and the secrets into a Secret named by `existingSecret`, whose keys become environment variables.
+
+```sh
+helm install entra-cimd-bridge oci://ghcr.io/natrontech/charts/entra-cimd-bridge --values values.yaml
+```
 
 `bridge --config config.yaml --check` validates the configuration, discovers every IdP and exits.
 
@@ -98,7 +102,7 @@ Then add a `resources` entry with that app's client ID and secret. MCP clients n
 The server serves Protected Resource Metadata (RFC 9728) that names the bridge, answers 401 with a challenge pointing to it, and validates the IdP's tokens as before: issuer, audience (its own API) and scope. The Go package [`resource`](resource/resource.go) does the first two:
 
 ```go
-import "gitlab.com/natrontech/applications/entra-cimd-bridge/resource"
+import "github.com/natrontech/entra-cimd-bridge/resource"
 
 meta := &resource.Metadata{
 	Resource:             "https://contactr.natron.ch/mcp", // exactly as in the bridge's config
@@ -146,6 +150,6 @@ make lint   # golangci-lint 2.14 or newer
 make run    # runs with ./config.yaml
 ```
 
-Releases follow [Semantic Versioning](https://semver.org): pushing a tag like `0.2.0` publishes `harbor.natron.services/natron-public/entra-cimd-bridge:0.2.0` and the chart `oci://harbor.natron.services/natron-helm/entra-cimd-bridge` with the same version.
+Releases follow [Semantic Versioning](https://semver.org): pushing a tag like `0.2.0` runs the checks, publishes `ghcr.io/natrontech/entra-cimd-bridge:0.2.0` and the chart `oci://ghcr.io/natrontech/charts/entra-cimd-bridge` with the same version, and creates a GitHub release with generated notes.
 
 The end-to-end test in [`e2e/`](e2e) runs the official MCP Go SDK client through the bridge, against a fake IdP that binds codes and refresh tokens to apps like Entra and fake MCP servers that validate its JWTs.

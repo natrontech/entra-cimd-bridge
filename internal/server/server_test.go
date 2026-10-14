@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/testenv"
+	"github.com/natrontech/entra-cimd-bridge/internal/testenv"
 )
 
 const (

@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/cimd"
-	"gitlab.com/natrontech/applications/entra-cimd-bridge/internal/upstream"
+	"github.com/natrontech/entra-cimd-bridge/internal/cimd"
+	"github.com/natrontech/entra-cimd-bridge/internal/upstream"
 )
 
 // tokenResponse is what the client gets: the IdP's own tokens, without the ID token
