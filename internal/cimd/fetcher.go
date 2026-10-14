@@ -179,9 +179,10 @@ func (f *Fetcher) fetch(ctx context.Context, clientID string) (*Document, time.D
 	return doc, f.ttl(resp.Header), nil
 }
 
-// ttl is how long a response may be cached according to its Cache-Control header, within the fetcher's bounds
+// ttl is how long a response may be cached according to its Cache-Control and Age headers, within the fetcher's bounds
 func (f *Fetcher) ttl(h http.Header) time.Duration {
-	cacheControl := h.Get("Cache-Control")
+	// A response may carry several Cache-Control fields, and a no-store in any of them counts
+	cacheControl := strings.Join(h.Values("Cache-Control"), ",")
 	if cacheControl == "" {
 		return f.opts.DefaultTTL
 	}
@@ -197,6 +198,11 @@ func (f *Fetcher) ttl(h http.Header) time.Duration {
 				return 0
 			}
 			ttl = time.Duration(seconds) * time.Second
+
+			// A shared cache in front of the host may have kept the response for a while already, which max-age includes (RFC 9111 section 4.2.3)
+			if age, err := strconv.ParseInt(h.Get("Age"), 10, 64); err == nil && age > 0 {
+				ttl -= time.Duration(min(age, seconds)) * time.Second
+			}
 		}
 	}
 	return min(ttl, f.opts.MaxTTL)

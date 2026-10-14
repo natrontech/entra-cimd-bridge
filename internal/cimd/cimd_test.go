@@ -259,6 +259,13 @@ func TestCacheTTL(t *testing.T) {
 		}
 		assert.Equal(t, want, f.ttl(h), header)
 	}
+
+	// The time a shared cache already kept the response counts against max-age
+	assert.Equal(t, 10*time.Second, f.ttl(http.Header{"Cache-Control": {"max-age=60"}, "Age": {"50"}}))
+	assert.Equal(t, time.Duration(0), f.ttl(http.Header{"Cache-Control": {"max-age=60"}, "Age": {"90"}}))
+
+	// A no-store in a second Cache-Control field counts as much as in the first
+	assert.Equal(t, time.Duration(0), f.ttl(http.Header{"Cache-Control": {"max-age=60", "no-store"}}))
 }
 
 func TestFetchRejectsInvalidDocumentsWithoutCaching(t *testing.T) {
