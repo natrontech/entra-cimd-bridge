@@ -60,7 +60,7 @@ func run() error {
 
 	servers := []*http.Server{
 		{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute},
-		{Addr: cfg.MetricsListen, Handler: srv.MetricsHandler(), ReadHeaderTimeout: 10 * time.Second},
+		{Addr: cfg.MetricsListen, Handler: srv.MetricsHandler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute},
 	}
 	errs := make(chan error, len(servers))
 	for _, s := range servers {
