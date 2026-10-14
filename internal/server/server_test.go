@@ -318,6 +318,17 @@ func TestConsentPage(t *testing.T) {
 	assert.Contains(t, csp, "form-action 'self' "+env.IdP.URL+" http://127.0.0.1:50000")
 	assert.Equal(t, "no-referrer", resp.Header.Get("Referrer-Policy"))
 	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
+
+	// The browser cookie is Lax, so a client's cross-site navigation reuses it instead of replacing it and breaking consent pages open in other tabs
+	var csrf *http.Cookie
+	for _, c := range resp.Cookies() {
+		if strings.HasSuffix(c.Name, "bridge-csrf") {
+			csrf = c
+		}
+	}
+	require.NotNil(t, csrf)
+	assert.Equal(t, http.SameSiteLaxMode, csrf.SameSite)
+	assert.True(t, csrf.HttpOnly)
 }
 
 func TestConsentNeedsTheBrowserItWasShownIn(t *testing.T) {
@@ -350,6 +361,31 @@ func TestConsentNeedsTheBrowserItWasShownIn(t *testing.T) {
 	// A post from another site is refused before the form is even read
 	assert.Equal(t, http.StatusForbidden, consent(map[string]string{"Sec-Fetch-Site": "cross-site"}))
 	assert.Equal(t, http.StatusForbidden, consent(map[string]string{"Origin": "https://evil.example"}))
+}
+
+func TestStateOnlyCompletesInTheBrowserThatStartedIt(t *testing.T) {
+	env := testenv.New(t, testenv.Options{Resources: []string{resourceA}, ConsentTTL: time.Hour})
+	attacker, victim := env.NewBrowser(), env.NewBrowser()
+	atIdP := func(u *url.URL) bool { return u.Path == "/authorize" && u.Host == env.IdP.Listener.Addr().String() }
+	atCallback := func(u *url.URL) bool { return u.Path == "/callback" && u.Host == env.Bridge.Listener.Addr().String() }
+
+	// The attacker consents for themselves, the first time on the consent page and the second time remembered
+	for range 2 {
+		authURL, _ := env.AuthorizeURL(resourceA)
+		idp, err := attacker.Follow(authURL, atIdP)
+		require.NoError(t, err)
+
+		// and has the victim's browser complete the IdP URL with its signed state
+		callback, err := victim.Follow(idp.String(), atCallback)
+		require.NoError(t, err)
+		resp, err := victim.Client.Get(callback.String())
+		require.NoError(t, err)
+		resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Empty(t, resp.Header.Get("Location"), "the victim's code goes nowhere")
+	}
+	assert.Equal(t, 1, attacker.ConsentPages)
+	assert.Zero(t, victim.ConsentPages)
 }
 
 func TestTamperedStateIsRejected(t *testing.T) {

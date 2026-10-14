@@ -27,6 +27,14 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A genuine state from another browser means someone else started this sign-in, so neither a code nor an error goes to their redirect URI
+	if !s.sameBrowser(r, st.Browser) {
+		s.metrics.inc("bridge_callbacks_total", "outcome", "wrong_browser")
+		s.log.WarnContext(r.Context(), "Rejected a callback from another browser than the one that started the sign-in", slog.String("client_id", st.ClientID), slog.String("resource", st.Resource))
+		s.errorPage(w, http.StatusBadRequest, "Sign-in failed", "This sign-in was started in another browser. Start it again from your app.")
+		return
+	}
+
 	if idpError := q.Get("error"); idpError != "" {
 		code, description := upstream.AuthorizeError(idpError, q.Get("error_description"))
 		s.metrics.inc("bridge_callbacks_total", "outcome", "error")

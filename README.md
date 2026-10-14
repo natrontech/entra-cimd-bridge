@@ -28,7 +28,7 @@ sequenceDiagram
     C->>I: User signs in
     I-->>C: 302 to bridge /callback with code and state
     C->>B: GET /callback
-    Note over B: Verify the state's signature and expiry
+    Note over B: Verify the state's signature and expiry,<br/>and that it comes back to the same browser
     B-->>C: 302 to client redirect_uri<br/>IdP code unchanged, client's state, iss = bridge
 
     Note over C,I: Token
@@ -43,7 +43,7 @@ sequenceDiagram
 ```
 
 - **PKCE** is end to end: the client's challenge goes to the IdP, which binds its code to the client's verifier. The bridge never sees a verifier until it forwards one.
-- **The only state** is what the bridge needs back at `/callback`: the client's redirect URI, state, client ID and resource. It travels in the IdP's `state` parameter, HMAC-signed and valid for 10 minutes. Without the signature anyone could pick where a code goes.
+- **The only state** is what the bridge needs back at `/callback`: the client's redirect URI, state, client ID and resource. It travels in the IdP's `state` parameter, HMAC-signed and valid for 10 minutes. Without the signature anyone could pick where a code goes. The state is also bound to a cookie of the browser that started the sign-in, so a state minted in one browser can't take another person's code to its redirect URI.
 - **Consent** is remembered in a signed cookie per client and MCP server, for `consent_ttl`.
 - **CIMD documents** are cached in memory as their cache headers allow.
 - **Isolation between MCP servers** comes from the IdP: every MCP server has its own app registration, and the bridge picks the credentials by `resource`. A code or refresh token issued to one server's app, sent with another server's `resource`, reaches the IdP with the wrong app and fails there with `invalid_grant`. The config refuses two resources sharing a `client_id`.

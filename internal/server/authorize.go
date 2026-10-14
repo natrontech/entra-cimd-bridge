@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	// csrfCookie binds a consent form to the browser it was shown in
+	// csrfCookie binds a consent form, and the sign-in it starts, to the browser it was shown in
 	csrfCookie = "bridge-csrf"
 	// consentCookiePrefix starts the name of the cookie that remembers one approval, followed by a hash of the client and the MCP server
 	consentCookiePrefix = "bridge-consent-"
@@ -41,11 +41,13 @@ type consentForm struct {
 }
 
 // flowState is what the bridge needs back at the callback, which the IdP carries in its state parameter
+// Browser binds it to the browser that started the sign-in, so a state minted in one browser can't deliver another person's code
 type flowState struct {
 	ClientID    string `json:"c"`
 	RedirectURI string `json:"r"`
 	State       string `json:"s,omitempty"`
 	Resource    string `json:"res"`
+	Browser     string `json:"b"`
 }
 
 // consentGrant is a remembered approval of one client for one MCP server
@@ -190,8 +192,9 @@ func (s *Server) handleConsent(w http.ResponseWriter, r *http.Request) {
 }
 
 // redirectToProvider sends the person to the IdP with the app of the MCP server, the client's own PKCE challenge and the bridge's signed state
+// The state is bound to this browser on both the consent and the remembered-consent path, since otherwise its IdP URL could be handed to someone else who never consented
 func (s *Server) redirectToProvider(w http.ResponseWriter, r *http.Request, req authRequest, res *resource, status int) {
-	state, err := s.ring.Sign(purposeState, flowState{ClientID: req.ClientID, RedirectURI: req.RedirectURI, State: req.State, Resource: res.uri}, flowTTL)
+	state, err := s.ring.Sign(purposeState, flowState{ClientID: req.ClientID, RedirectURI: req.RedirectURI, State: req.State, Resource: res.uri, Browser: s.browserBinding(w, r)}, flowTTL)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
@@ -209,16 +212,18 @@ func (s *Server) redirectToProvider(w http.ResponseWriter, r *http.Request, req 
 }
 
 // browserBinding returns a hash of this browser's CSRF cookie, setting the cookie first if it has none
+// The cookie is SameSite=Lax, since it must come along when a client sends the person here and when the IdP sends them back, both top-level navigations from another site
+// Cross-site posts still don't carry it, and the consent endpoint refuses them anyway
 func (s *Server) browserBinding(w http.ResponseWriter, r *http.Request) string {
 	if c, err := r.Cookie(s.cookieName(csrfCookie)); err == nil && len(c.Value) >= 26 {
 		return hashCookie(c.Value)
 	}
 	value := rand.Text()
-	http.SetCookie(w, &http.Cookie{Name: s.cookieName(csrfCookie), Value: value, Path: "/", Secure: s.secureCookies, HttpOnly: true, SameSite: http.SameSiteStrictMode}) //nolint:gosec // Secure is only off for an http issuer on localhost
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName(csrfCookie), Value: value, Path: "/", Secure: s.secureCookies, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // Secure is only off for an http issuer on localhost
 	return hashCookie(value)
 }
 
-// sameBrowser reports whether the request comes with the CSRF cookie a consent form was bound to
+// sameBrowser reports whether the request comes with the CSRF cookie a consent form or state was bound to
 func (s *Server) sameBrowser(r *http.Request, binding string) bool {
 	c, err := r.Cookie(s.cookieName(csrfCookie))
 	return err == nil && binding != "" && subtle.ConstantTimeCompare([]byte(hashCookie(c.Value)), []byte(binding)) == 1
