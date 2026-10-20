@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign-in flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #ffffff;
+  --dot: oklch(0.55 0 0 / 0.18);
+  --fg: #111111;
+  --muted: #5c5c5c;
+  --line: #e5e5e5;
+  --card: #ffffff;
+  --arrow: #111111;
+  --sky: oklch(0.55 0.12 230);
+  --sage: oklch(0.55 0.12 160);
+  --lavender: oklch(0.55 0.15 285);
+  --peach: oklch(0.60 0.13 55);
+  --amber: oklch(0.55 0.13 85);
+  --sky-bg: #a5d3f740;
+  --sage-bg: #a7d9c140;
+  --lavender-bg: #c4b5fd40;
+  --peach-bg: #fdba9b40;
+  --amber-bg: #fcd34d33;
+  --shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+:root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --dot: oklch(0.75 0 0 / 0.12);
+  --fg: #f5f5f5;
+  --muted: #a3a3a3;
+  --line: #ffffff1f;
+  --card: #171717;
+  --arrow: #e5e5e5;
+  --sky: oklch(0.79 0.07 230);
+  --sage: oklch(0.78 0.07 160);
+  --lavender: oklch(0.75 0.10 285);
+  --peach: oklch(0.78 0.09 55);
+  --amber: oklch(0.78 0.09 85);
+  --sky-bg: #a5d3f726;
+  --sage-bg: #a7d9c126;
+  --lavender-bg: #c4b5fd26;
+  --peach-bg: #fdba9b26;
+  --amber-bg: #fcd34d1f;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.4 "Instrument Sans", system-ui, sans-serif;
+}
+code { font: 13px "JetBrains Mono", ui-monospace, monospace; }
+#diagram {
+  width: 1100px;
+  padding: 36px 40px 40px;
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  row-gap: 6px;
+}
+.lifeline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dashed var(--line);
+  transform: translateX(-1px);
+}
+.actor {
+  justify-self: center;
+  width: 170px;
+  padding: 12px 10px;
+  border-radius: 10px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 16px;
+  background: var(--card);
+  border: 1.5px solid currentColor;
+  box-shadow: var(--shadow);
+  position: relative;
+  z-index: 1;
+}
+.actor span { display: block; color: var(--muted); font-weight: 400; font-size: 13px; }
+.actor.client { color: var(--sky); background: linear-gradient(var(--sky-bg), var(--sky-bg)), var(--card); }
+.actor.server { color: var(--sage); background: linear-gradient(var(--sage-bg), var(--sage-bg)), var(--card); }
+.actor.bridge { color: var(--peach); background: linear-gradient(var(--peach-bg), var(--peach-bg)), var(--card); }
+.actor.meta { color: var(--muted); background: var(--card); }
+.actor.idp { color: var(--lavender); background: linear-gradient(var(--lavender-bg), var(--lavender-bg)), var(--card); }
+.actor b { color: var(--fg); font-weight: 600; }
+.phase {
+  grid-column: 1 / -1;
+  margin: 18px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  position: relative;
+  z-index: 1;
+}
+.phase::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.phase em {
+  font-style: normal;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.msg {
+  position: relative;
+  z-index: 1;
+  padding: 4px 0 10px;
+  margin: 0 calc(50% / var(--span));
+}
+.msg .label {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  text-align: center;
+  padding: 0 8px 6px;
+  white-space: nowrap;
+}
+.num {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+  transform: translateY(-1px);
+}
+.line {
+  position: relative;
+  height: 0;
+  border-top: 2px solid var(--arrow);
+}
+.back .line { border-top-style: dashed; }
+.line::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: -2px;
+  border: 6px solid transparent;
+  border-left: 10px solid var(--arrow);
+  border-right: 0;
+}
+.left .line::after { right: auto; left: -2px; border-left: 0; border-right: 10px solid var(--arrow); }
+.note {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  margin: 2px 0 10px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: linear-gradient(var(--amber-bg), var(--amber-bg)), var(--card);
+  border: 1px solid var(--amber);
+  font-size: 14px;
+  text-align: center;
+}
+.legend {
+  margin-top: 26px;
+  display: flex;
+  gap: 28px;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { display: inline-block; width: 34px; border-top: 2px solid var(--arrow); }
+.legend i.dashed { border-top-style: dashed; }
+</style>
+</head>
+<body>
+<div id="diagram">
+  <div class="grid" id="grid">
+    <div class="actor client"><b>MCP client</b><span>Claude, Codex, VS Code</span></div>
+    <div class="actor server"><b>MCP server</b><span>your API</span></div>
+    <div class="actor bridge"><b>Bridge</b><span>this project</span></div>
+    <div class="actor meta"><b>Client metadata</b><span>claude.ai, chatgpt.com, …</span></div>
+    <div class="actor idp"><b>Entra ID</b><span>or another IdP</span></div>
+  </div>
+  <div class="legend">
+    <span><i></i> request</span>
+    <span><i class="dashed"></i> response or redirect</span>
+  </div>
+</div>
+<script>
+// Columns: 1 client, 2 server, 3 bridge, 4 metadata, 5 IdP
+const steps = [
+  ["phase", "Discovery"],
+  [1, 2, "Request without a token"],
+  [2, 1, "<code>401</code>, sign in at the bridge", true],
+  ["phase", "Sign in"],
+  [1, 3, "<code>/authorize</code>, the <code>client_id</code> is a URL"],
+  [3, 4, "Fetch the metadata document"],
+  ["note", 3, "Check the <code>redirect_uri</code>,<br>ask the user for consent"],
+  [3, 1, "Redirect to Entra with a signed <code>state</code>", true],
+  [1, 5, "User signs in at Entra"],
+  [5, 3, "Redirect to <code>/callback</code> with the code", true],
+  ["note", 3, "Check the signature of the <code>state</code>"],
+  [3, 1, "Redirect to the client, code unchanged", true],
+  ["phase", "Token"],
+  [1, 3, "<code>/token</code> with the code verifier"],
+  [3, 5, "<code>/token</code> with the app's secret"],
+  [5, 3, "Access and refresh token", true],
+  [3, 1, "Same tokens, unchanged", true],
+  ["phase", "Use"],
+  [1, 2, "Request with the Entra token"],
+];
+
+const grid = document.getElementById("grid");
+for (let col = 1; col <= 5; col++) {
+  const l = document.createElement("div");
+  l.className = "lifeline";
+  l.style.left = `${(col - 0.5) * 20}%`;
+  grid.prepend(l);
+}
+
+let n = 0;
+for (const s of steps) {
+  const el = document.createElement("div");
+  if (s[0] === "phase") {
+    el.className = "phase";
+    el.innerHTML = `<em>${s[1]}</em>`;
+  } else if (s[0] === "note") {
+    el.className = "note";
+    el.style.gridColumn = `${s[1] - 1} / ${s[1] + 2}`;
+    el.innerHTML = s[2];
+  } else {
+    const [from, to, label, back] = s;
+    const lo = Math.min(from, to), hi = Math.max(from, to);
+    el.className = `msg${from > to ? " left" : ""}${back ? " back" : ""}`;
+    el.style.gridColumn = `${lo} / ${hi + 1}`;
+    el.style.setProperty("--span", hi - lo + 1);
+    el.innerHTML = `<div class="label"><span class="num">${++n}</span><span>${label}</span></div><div class="line"></div>`;
+  }
+  grid.append(el);
+}
+
+document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") || "light";
+</script>
+</body>
+</html>

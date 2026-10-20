@@ -1,58 +1,25 @@
 # entra-cimd-bridge
 
-An OAuth authorization server that lets MCP clients sign in to MCP servers through an identity provider that doesn't speak the MCP authorization spec.
+MCP clients like Claude, Codex or VS Code want to connect to an MCP server without registering a client first. The [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) does this with Client ID Metadata Documents (CIMD): the `client_id` is a URL to a JSON document that describes the client. Entra ID doesn't support this, so you would have to register an app registration for each MCP client. Entra also rejects the `resource` parameter (RFC 8707) that MCP clients send, if it doesn't match the requested scopes (`AADSTS9010010`).
 
-The [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) expects an authorization server that clients can use without prior registration: Client ID Metadata Documents (CIMD), PKCE advertised in metadata, and `resource` (RFC 8707). Entra ID, like most enterprise IdPs, offers none of that. The bridge sits in front of it. Towards MCP clients it is an authorization server with CIMD. Towards the IdP it is one confidential client per MCP server. In between it passes almost everything through: codes, PKCE, access tokens and refresh tokens are all the IdP's own, so MCP servers validate the IdP's tokens exactly as before.
+CIMD isn't a "hacky" solution, other IdPs like [Pocket ID](https://pocket-id.org/docs/guides/client-id-metadata-documents) and [Auth0](https://auth0.com/docs/get-started/auth0-overview/create-applications/register-applications-with-cimd) already support it. If your IdP does, you don't need this bridge.
+
+The bridge sits in front of Entra ID (or another OIDC provider) and is the authorization server for the MCP clients. For Entra it's a normal confidential client, with one app registration per MCP server. The bridge uses the `resource` of the client to pick the app registration and scopes of the MCP server and doesn't send it to Entra. Codes and tokens come from Entra and are passed through unchanged, so your MCP servers validate Entra tokens like before.
+
+The bridge has no database, doesn't issue its own tokens and doesn't proxy any MCP traffic.
 
 ## How it works
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as MCP client
-    participant S as MCP server
-    participant B as Bridge
-    participant M as Client metadata<br/>(CIMD URL)
-    participant I as IdP (Entra ID)
+If you want to understand the flow, here's a diagram showing how the bridge interacts with the MCP client and Entra ID.
 
-    Note over C,I: Discovery
-    C->>S: Request without a token
-    S-->>C: 401 and protected resource metadata<br/>authorization_servers = [bridge]
-
-    Note over C,I: Authorization
-    C->>B: GET /authorize<br/>client_id = CIMD URL, redirect_uri,<br/>code_challenge, state, resource
-    B->>M: Fetch the client metadata document
-    M-->>B: CIMD, cached as its headers allow
-    Note over B: Validate the CIMD and redirect_uri<br/>Map resource to app and scopes<br/>Show consent
-    B-->>C: 302 to IdP /authorize<br/>resource's app, bridge callback,<br/>client's own code_challenge, signed state
-    C->>I: User signs in
-    I-->>C: 302 to bridge /callback with code and state
-    C->>B: GET /callback
-    Note over B: Verify the state's signature and expiry,<br/>and that it comes back to the same browser
-    B-->>C: 302 to client redirect_uri<br/>IdP code unchanged, client's state, iss = bridge
-
-    Note over C,I: Token
-    C->>B: POST /token with code and code_verifier
-    B->>I: POST /token<br/>resource's app and secret, bridge callback,<br/>mapped scopes, no resource
-    I-->>B: Access and refresh token
-    B-->>C: IdP tokens, unchanged
-
-    Note over C,I: Access
-    C->>S: Request with Bearer IdP token
-    Note over S: Validate iss, aud and scp as usual
-```
-
-- **PKCE** is end to end: the client's challenge goes to the IdP, which binds its code to the client's verifier. The bridge never sees a verifier until it forwards one.
-- **The only state** is what the bridge needs back at `/callback`: the client's redirect URI, state, client ID and resource. It travels in the IdP's `state` parameter, HMAC-signed and valid for 10 minutes. Without the signature anyone could pick where a code goes. The state is also bound to a cookie of the browser that started the sign-in, so a state minted in one browser can't take another person's code to its redirect URI.
-- **Consent** is remembered in a signed cookie per client and MCP server, for `consent_ttl`.
-- **CIMD documents** are cached in memory as their cache headers allow.
-- **Isolation between MCP servers** comes from the IdP: every MCP server has its own app registration, and the bridge picks the credentials by `resource`. A code or refresh token issued to one server's app, sent with another server's `resource`, reaches the IdP with the wrong app and fails there with `invalid_grant`. The config refuses two resources sharing a `client_id`.
-
-The bridge doesn't issue tokens of its own, has no database and doesn't proxy MCP traffic.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/flow-dark.png">
+  <img alt="Sign-in flow through the bridge" src="docs/flow-light.png">
+</picture>
 
 ## Running
 
-The bridge is a single static binary, published as `ghcr.io/natrontech/entra-cimd-bridge` (distroless) with a Helm chart in [`chart/`](chart), published as `oci://ghcr.io/natrontech/charts/entra-cimd-bridge`.
+The image is `ghcr.io/natrontech/entra-cimd-bridge`:
 
 ```sh
 docker run -p 8080:8080 -v ./config.yaml:/etc/bridge/config.yaml:ro \
@@ -61,45 +28,65 @@ docker run -p 8080:8080 -v ./config.yaml:/etc/bridge/config.yaml:ro \
   ghcr.io/natrontech/entra-cimd-bridge:latest
 ```
 
-Replicas share nothing but the signing keys, so the bridge scales freely. With the chart, the configuration goes under `config:` in the values and the secrets into a Secret named by `existingSecret`, whose keys become environment variables.
+Or with the Helm chart. The config goes under `config:` in the values, and the secrets into a Secret set in `existingSecret`. Its keys become environment variables.
 
 ```sh
 helm install entra-cimd-bridge oci://ghcr.io/natrontech/charts/entra-cimd-bridge --values values.yaml
 ```
 
-`bridge --config config.yaml --check` validates the configuration, discovers every IdP and exits.
+Replicas only share the signing keys, so you can run as many as you want.
+
+`bridge --config config.yaml --check` validates the config, runs the OIDC discovery for every provider and exits.
 
 ## Configuration
 
-[`config.example.yaml`](config.example.yaml) is a complete example. `${NAME}` anywhere in a value is replaced by the environment variable, and an unset variable fails startup.
+See [`config.example.yaml`](config.example.yaml) for a full example. `${NAME}` in a value is replaced with the environment variable. If the variable isn't set, the bridge doesn't start.
 
-| Key | |
-|---|---|
-| `issuer` | The bridge's public URL, an https origin without a path. On a developer's machine it may be `http://localhost:<port>` |
-| `listen`, `metrics_listen` | `:8080` and `:9090` by default. `/metrics` has its own listener, so it never faces the internet |
-| `signing_keys` | Keys of at least 32 bytes for the state and the consent cookie. The first signs, all verify: to rotate, put a new key first and drop the old one after `consent_ttl` |
-| `providers.<name>.issuer` | An IdP, loaded through OIDC discovery at startup. A provider that lists `code_challenge_methods_supported` without `S256` is refused; Entra lists none and supports S256 |
-| `clients.cimd_hosts` | Hosts allowed to serve client metadata documents: a host, `*.domain`, or `*`. Claude's apps use `claude.ai`, Codex `chatgpt.com` and VS Code `vscode.dev`. Removing a host stops new sign-ins, but refresh tokens its clients already hold keep working until they are revoked at the IdP |
-| `consent_ttl` | How long an approval is remembered per client and MCP server, `0` to ask every time |
-| `resources` | One entry per MCP server: its canonical `uri`, a `name` for the consent page, the `provider`, the `client_id` and `client_secret` of its app registration, and the `scopes` to request |
+| Key                        |                                                                                                                                                                                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `issuer`                   | Public URL of the bridge, an https origin without a path. For local development `http://localhost:<port>` works too                                                                                                                                                |
+| `listen`, `metrics_listen` | Default `:8080` and `:9090`. `/metrics` has its own listener so it isn't exposed to the internet                                                                                                                                                                   |
+| `signing_keys`             | Keys with at least 32 bytes, used for the state and the consent cookie. The first key signs, all keys verify. To rotate, add a new key at the top and remove the old one after `consent_ttl`                                                                       |
+| `providers.<name>.issuer`  | The issuer of the IdP, loaded with OIDC discovery at startup. Providers that list `code_challenge_methods_supported` without `S256` are refused (Entra lists nothing but supports S256)                                                                            |
+| `clients.cimd_hosts`       | Hosts that can serve client metadata documents: a host, `*.domain` or `*`. Claude uses `claude.ai`, Codex `chatgpt.com` and VS Code `vscode.dev`. If you remove a host, new sign-ins stop, but existing refresh tokens keep working until you revoke them in Entra |
+| `consent_ttl`              | How long the consent is remembered per client and MCP server, `0` asks every time                                                                                                                                                                                  |
+| `resources`                | One entry per MCP server with its `uri`, a `name` for the consent page, the `provider`, the `client_id` and `client_secret` of its app registration and the `scopes` to request                                                                                    |
 
-The client's own `scope` is ignored: the bridge always requests the resource's configured scopes.
+The `scope` the client sends is ignored, the bridge always requests the scopes from the config.
 
 ## Adding an MCP server
 
 ### In Entra
 
-Use the MCP server's own app registration, since Entra lets an app request tokens for its own API, or a dedicated one with permissions on the server's API only. In it:
+Use the app registration of the MCP server itself (Entra allows an app to request tokens for its own API), or create a separate one that only has permissions on the MCP server's API. Then:
 
 1. Add `https://<bridge>/callback` as a **Web** redirect URI.
 2. Create a client secret for the bridge.
-3. Make sure the delegated scope the bridge requests, such as `api://<client-id>/access_as_user`, is consented for the tenant, and that `requestedAccessTokenVersion` is 2.
+3. Make sure the delegated scope, e.g. `api://<client-id>/access_as_user`, has admin consent and `requestedAccessTokenVersion` is 2.
 
-Then add a `resources` entry with that app's client ID and secret. MCP clients never need their own registration.
+Add the client ID and secret to `resources` in the config.
 
 ### In the MCP server
 
-The server serves Protected Resource Metadata (RFC 9728) that names the bridge, answers 401 with a challenge pointing to it, and validates the IdP's tokens as before: issuer, audience (its own API) and scope. The Go package [`resource`](resource/resource.go) does the first two:
+The MCP server validates the Entra tokens like before (issuer, audience and scope), the bridge doesn't change anything there. It only has to tell the clients where to sign in, with two things:
+
+1. The Protected Resource Metadata (RFC 9728) at `/.well-known/oauth-protected-resource` followed by the path of the MCP server, with the bridge as authorization server:
+
+   ```json
+   {
+     "resource": "https://contactr.natron.ch/mcp",
+     "authorization_servers": ["https://mcp-auth.natron.ch"],
+     "scopes_supported": ["api://<client-id>/access_as_user"]
+   }
+   ```
+
+2. A 401 with a `WWW-Authenticate` header that points to this metadata, if a request has no valid token:
+
+   ```
+   WWW-Authenticate: Bearer resource_metadata="https://contactr.natron.ch/.well-known/oauth-protected-resource/mcp", scope="api://<client-id>/access_as_user"
+   ```
+
+Many MCP SDKs can already do this, so you don't need anything from this repo. For Go there is the small package [`resource`](resource/resource.go) that does both:
 
 ```go
 import "github.com/natrontech/entra-cimd-bridge/resource"
@@ -123,33 +110,10 @@ if err := verifyEntraToken(r.Context(), token); err != nil {
 }
 ```
 
-## Clients
-
-Any client with CIMD support works. These are tested against their published metadata documents ([`internal/cimd/clients_test.go`](internal/cimd/clients_test.go), `CIMD_LIVE=1` fetches the live ones):
-
-| Client | `client_id` | Redirect | Signs in from |
-|---|---|---|---|
-| Claude Code | `https://claude.ai/oauth/claude-code-client-metadata` | `http://localhost:<port>/callback` | The user's machine |
-| Claude Desktop, claude.ai, Claude mobile | `https://claude.ai/oauth/mcp-oauth-client-metadata` | `https://claude.ai/api/mcp/auth_callback` | Anthropic's servers |
-| Codex | `https://chatgpt.com/oauth/codex/client.json` | `http://127.0.0.1:<port>/callback` | The user's machine |
-| VS Code | `https://vscode.dev/oauth/client-metadata.json` | `http://127.0.0.1:33418/` or `https://vscode.dev/redirect` | The user's machine |
-
-Claude Desktop runs its connectors from Anthropic's servers (`160.79.104.0/21`), not from the user's machine. For it, the MCP server and the bridge's metadata and token endpoints must be reachable from there, while `/authorize` and `/callback` only need to be reachable from the user's browser.
-
-Codex uses its shared document because the bridge returns `iss` (RFC 9207). Without it, Codex would use one document per MCP server on the same host.
-
-Clients must send `resource` on token requests when the bridge serves more than one MCP server, as the MCP spec requires. A bridge with a single MCP server uses it when `resource` is missing.
-
-The MCP Go SDK (`modelcontextprotocol/go-sdk`, v1.8) refreshes through `golang.org/x/oauth2`, which can't add `resource`. Behind a bridge with several MCP servers its refreshes fail with `invalid_target`, unless the client passes a `NewTokenSource` that adds it, like [`e2e/e2e_test.go`](e2e/e2e_test.go) does.
-
 ## Development
 
 ```sh
-make test   # unit tests and the end-to-end test, with the race detector
+make test   # unit and end-to-end tests
 make lint   # golangci-lint 2.14 or newer
 make run    # runs with ./config.yaml
 ```
-
-Releases follow [Semantic Versioning](https://semver.org): pushing a tag like `0.2.0` runs the checks, publishes `ghcr.io/natrontech/entra-cimd-bridge:0.2.0` and the chart `oci://ghcr.io/natrontech/charts/entra-cimd-bridge` with the same version, and creates a GitHub release with generated notes.
-
-The end-to-end test in [`e2e/`](e2e) runs the official MCP Go SDK client through the bridge, against a fake IdP that binds codes and refresh tokens to apps like Entra and fake MCP servers that validate its JWTs.
