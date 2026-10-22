@@ -15,13 +15,16 @@ const maxClientIDLength = 2000
 
 // Document is the part of a client's metadata document the bridge reads
 type Document struct {
-	ClientID                string   `json:"client_id"`
-	ClientName              string   `json:"client_name"`
-	ClientURI               string   `json:"client_uri,omitempty"`
-	RedirectURIs            []string `json:"redirect_uris"`
-	GrantTypes              []string `json:"grant_types,omitempty"`
-	ResponseTypes           []string `json:"response_types,omitempty"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	ClientID                          string   `json:"client_id"`
+	ClientName                        string   `json:"client_name"`
+	ClientURI                         string   `json:"client_uri,omitempty"`
+	RedirectURIs                      []string `json:"redirect_uris"`
+	GrantTypes                        []string `json:"grant_types,omitempty"`
+	ResponseTypes                     []string `json:"response_types,omitempty"`
+	TokenEndpointAuthMethod           string   `json:"token_endpoint_auth_method,omitempty"`
+	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported,omitempty"`
+	TokenEndpointAuthSigningAlg       string   `json:"token_endpoint_auth_signing_alg,omitempty"`
+	JWKSURI                           string   `json:"jwks_uri,omitempty"`
 
 	// The secret fields are only read to reject documents that carry them, since a public document can't hold a secret
 	ClientSecret          json.RawMessage `json:"client_secret,omitempty"`
@@ -93,6 +96,22 @@ func parseDocument(clientID string, body []byte) (*Document, error) {
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, &Error{msg: "The client's metadata document isn't valid JSON.", cause: err}
 	}
+	authMethod := strings.TrimSpace(doc.TokenEndpointAuthMethod)
+	if authMethod == "" {
+		authMethod = "none"
+	}
+	doc.TokenEndpointAuthMethod = authMethod
+
+	clientURL, err := url.Parse(clientID)
+	if err != nil {
+		return nil, reject("The client_id isn't a valid URL.")
+	}
+	if doc.JWKSURI != "" {
+		if err = validateJWKSURI(clientURL, doc.JWKSURI); err != nil {
+			return nil, err
+		}
+	}
+
 	switch {
 	case doc.ClientID != clientID:
 		return nil, reject("The client's metadata document names a different client_id.")
@@ -102,14 +121,36 @@ func parseDocument(clientID string, body []byte) (*Document, error) {
 		return nil, reject("The client's metadata document lists no redirect_uris.")
 	case len(doc.ClientSecret) > 0 || len(doc.ClientSecretExpiresAt) > 0:
 		return nil, reject("The client's metadata document contains a client secret.")
-	case doc.TokenEndpointAuthMethod != "" && doc.TokenEndpointAuthMethod != "none":
-		return nil, reject("The client authenticates with %s, but only public clients are supported.", doc.TokenEndpointAuthMethod)
+	case authMethod != "none" && authMethod != "private_key_jwt":
+		return nil, reject("The client authenticates with %s, but only none and private_key_jwt are supported.", authMethod)
+	case len(doc.TokenEndpointAuthMethodsSupported) > 0 && !slices.Contains(doc.TokenEndpointAuthMethodsSupported, authMethod):
+		return nil, reject("The client's metadata document doesn't list %s as a token endpoint authentication method.", authMethod)
+	case authMethod == "private_key_jwt" && doc.JWKSURI == "":
+		return nil, reject("The client uses private_key_jwt but its metadata document has no jwks_uri.")
+	case authMethod == "private_key_jwt" && doc.TokenEndpointAuthSigningAlg != "" && doc.TokenEndpointAuthSigningAlg != "RS256":
+		return nil, reject("The client signs token assertions with %s, but only RS256 is supported.", doc.TokenEndpointAuthSigningAlg)
 	case len(doc.GrantTypes) > 0 && !slices.Contains(doc.GrantTypes, "authorization_code"):
 		return nil, reject("The client's metadata document doesn't allow the authorization_code grant.")
 	case len(doc.ResponseTypes) > 0 && !slices.Contains(doc.ResponseTypes, "code"):
 		return nil, reject("The client's metadata document doesn't allow the code response type.")
 	}
 	return &doc, nil
+}
+
+// validateJWKSURI keeps the key set on the same HTTPS origin as the metadata document, so a client can't point the bridge at an unrelated host
+func validateJWKSURI(clientURL *url.URL, raw string) error {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "":
+		return reject("The client's jwks_uri must be an https URL.")
+	case u.User != nil || strings.Contains(raw, "#"):
+		return reject("The client's jwks_uri must not contain a username, password or fragment.")
+	case !strings.EqualFold(u.Host, clientURL.Host):
+		return reject("The client's jwks_uri must be on the same host as its client_id.")
+	case u.Path == "" || u.Path == "/":
+		return reject("The client's jwks_uri must have a path.")
+	}
+	return nil
 }
 
 // AllowsRedirect reports whether the document registers uri as a redirect URI

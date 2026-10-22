@@ -50,15 +50,40 @@ func TestDocumentValidation(t *testing.T) {
 	_, err := parseDocument(id, mustJSON(t, valid))
 	require.NoError(t, err)
 
+	privateKey := map[string]any{}
+	for k, v := range valid {
+		privateKey[k] = v
+	}
+	privateKey["token_endpoint_auth_method"] = "private_key_jwt"
+	privateKey["token_endpoint_auth_methods_supported"] = []string{"none", "private_key_jwt"}
+	privateKey["token_endpoint_auth_signing_alg"] = "RS256"
+	privateKey["jwks_uri"] = "https://app.example/jwks.json"
+	_, err = parseDocument(id, mustJSON(t, privateKey))
+	require.NoError(t, err, "ChatGPT-style private_key_jwt client")
+
 	for name, change := range map[string]func(map[string]any){
-		"mismatched client_id":  func(d map[string]any) { d["client_id"] = "https://evil.example/client.json" },
-		"client_id with slash":  func(d map[string]any) { d["client_id"] = id + "/" },
-		"no client_name":        func(d map[string]any) { delete(d, "client_name") },
-		"blank client_name":     func(d map[string]any) { d["client_name"] = "  " },
-		"no redirect_uris":      func(d map[string]any) { delete(d, "redirect_uris") },
-		"client secret":         func(d map[string]any) { d["client_secret"] = "s3cret" },
-		"secret auth method":    func(d map[string]any) { d["token_endpoint_auth_method"] = "client_secret_post" },
-		"private_key_jwt":       func(d map[string]any) { d["token_endpoint_auth_method"] = "private_key_jwt" },
+		"mismatched client_id":    func(d map[string]any) { d["client_id"] = "https://evil.example/client.json" },
+		"client_id with slash":    func(d map[string]any) { d["client_id"] = id + "/" },
+		"no client_name":          func(d map[string]any) { delete(d, "client_name") },
+		"blank client_name":       func(d map[string]any) { d["client_name"] = "  " },
+		"no redirect_uris":        func(d map[string]any) { delete(d, "redirect_uris") },
+		"client secret":           func(d map[string]any) { d["client_secret"] = "s3cret" },
+		"secret auth method":      func(d map[string]any) { d["token_endpoint_auth_method"] = "client_secret_post" },
+		"private_key_jwt no jwks": func(d map[string]any) { d["token_endpoint_auth_method"] = "private_key_jwt" },
+		"private_key_jwt wrong jwks": func(d map[string]any) {
+			d["token_endpoint_auth_method"] = "private_key_jwt"
+			d["jwks_uri"] = "https://evil.example/jwks.json"
+		},
+		"private_key_jwt wrong alg": func(d map[string]any) {
+			d["token_endpoint_auth_method"] = "private_key_jwt"
+			d["jwks_uri"] = "https://app.example/jwks.json"
+			d["token_endpoint_auth_signing_alg"] = "ES256"
+		},
+		"unlisted auth method": func(d map[string]any) {
+			d["token_endpoint_auth_method"] = "private_key_jwt"
+			d["token_endpoint_auth_methods_supported"] = []string{"none"}
+			d["jwks_uri"] = "https://app.example/jwks.json"
+		},
 		"no authorization_code": func(d map[string]any) { d["grant_types"] = []string{"client_credentials"} },
 		"no code response":      func(d map[string]any) { d["response_types"] = []string{"token"} },
 	} {

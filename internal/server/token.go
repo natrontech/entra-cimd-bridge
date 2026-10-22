@@ -78,7 +78,7 @@ func (s *Server) exchange(r *http.Request) (*upstream.Token, *resource, *tokenEr
 
 	// The client is checked like at authorization, so the request comes from a client the bridge still accepts
 	// Nothing ties the code or refresh token to that client, so cutting off one that already holds grants takes revoking them at the IdP
-	clientID, problem := publicClientID(r)
+	clientID, problem := clientIDFromRequest(r)
 	if problem != "" {
 		return nil, nil, &tokenError{http.StatusUnauthorized, "invalid_client", problem}
 	}
@@ -86,6 +86,9 @@ func (s *Server) exchange(r *http.Request) (*upstream.Token, *resource, *tokenEr
 	if err != nil {
 		s.log.InfoContext(r.Context(), "Rejected a token request", slog.String("client_id", clientID), slog.Any("error", err))
 		return nil, nil, &tokenError{http.StatusUnauthorized, "invalid_client", cimd.Message(err)}
+	}
+	if authErr := s.authenticateClient(r.Context(), r, doc); authErr != nil {
+		return nil, nil, authErr
 	}
 	res, err := s.resourceFor(form["resource"])
 	if err != nil {
@@ -133,32 +136,6 @@ func (s *Server) exchange(r *http.Request) (*upstream.Token, *resource, *tokenEr
 		return nil, nil, &tokenError{status, code, description}
 	}
 	return tok, res, nil
-}
-
-// publicClientID reads the client ID from the form or from Basic authentication with an empty password, which some OAuth libraries send for public clients
-// It returns the ID, or why the request can't be from a public client
-func publicClientID(r *http.Request) (string, string) {
-	formID := r.PostForm.Get("client_id")
-	if r.PostForm.Get("client_secret") != "" {
-		return "", "Clients here are public and must not send a secret."
-	}
-	user, pass, ok := r.BasicAuth()
-	if !ok {
-		if formID == "" {
-			return "", "The request has no client_id."
-		}
-		return formID, ""
-	}
-	id, err := url.QueryUnescape(user)
-	switch {
-	case err != nil:
-		return "", "The client_id in the Authorization header isn't form-encoded."
-	case pass != "":
-		return "", "Clients here are public and must not send a secret."
-	case formID != "" && formID != id:
-		return "", "The client_id in the form and in the Authorization header differ."
-	}
-	return id, ""
 }
 
 // handleTokenPreflight lets browser-based clients call the token endpoint, which needs no cookies
