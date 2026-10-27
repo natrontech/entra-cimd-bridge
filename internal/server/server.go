@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/natrontech/entra-cimd-bridge/internal/cimd"
@@ -56,9 +55,6 @@ type Server struct {
 	metadata      []byte
 	metrics       *metrics
 	log           *slog.Logger
-
-	assertionMu   sync.Mutex
-	assertionJTIs map[string]time.Time
 }
 
 // resource is an MCP server, with the app registration the bridge uses for it at its IdP
@@ -99,7 +95,6 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Server, error)
 		consentTTL:    cfg.ConsentTTL,
 		metrics:       newMetrics(),
 		log:           opts.Logger,
-		assertionJTIs: map[string]time.Time{},
 	}
 	observe := opts.CIMD.Observe
 	opts.CIMD.Observe = func(outcome string) {

@@ -74,6 +74,10 @@ func TestDocumentValidation(t *testing.T) {
 			d["token_endpoint_auth_method"] = "private_key_jwt"
 			d["jwks_uri"] = "https://evil.example/jwks.json"
 		},
+		"http jwks_uri": func(d map[string]any) {
+			d["token_endpoint_auth_method"] = "private_key_jwt"
+			d["jwks_uri"] = "http://app.example/jwks.json"
+		},
 		"private_key_jwt wrong alg": func(d map[string]any) {
 			d["token_endpoint_auth_method"] = "private_key_jwt"
 			d["jwks_uri"] = "https://app.example/jwks.json"

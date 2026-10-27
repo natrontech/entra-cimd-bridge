@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -25,25 +23,8 @@ type jwksEntry struct {
 	expires time.Time
 }
 
-// FetchJWKS returns the signing keys named by a client's validated CIMD document
-// The key set must stay on the same HTTPS host as the client metadata document and is fetched through the same guarded transport as the metadata itself
-func (f *Fetcher) FetchJWKS(ctx context.Context, clientID, jwksURI string) (*jose.JSONWebKeySet, error) {
-	clientURL, err := url.Parse(clientID)
-	if err != nil {
-		return nil, &Error{msg: "The client's signing keys can't be fetched.", cause: err}
-	}
-	u, err := url.Parse(jwksURI)
-	switch {
-	case err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "":
-		return nil, reject("The client's jwks_uri must be an https URL.")
-	case u.User != nil || strings.Contains(jwksURI, "#"):
-		return nil, reject("The client's jwks_uri must not contain a username, password or fragment.")
-	case !strings.EqualFold(u.Host, clientURL.Host):
-		return nil, reject("The client's jwks_uri must be on the same host as its client_id.")
-	case u.Path == "" || u.Path == "/":
-		return nil, reject("The client's jwks_uri must have a path.")
-	}
-
+// FetchJWKS returns the signing keys at a parsed document's jwks_uri, fetched through the same guarded transport as the document itself
+func (f *Fetcher) FetchJWKS(ctx context.Context, jwksURI string) (*jose.JSONWebKeySet, error) {
 	if set, ok := f.cachedJWKS(jwksURI); ok {
 		return set, nil
 	}

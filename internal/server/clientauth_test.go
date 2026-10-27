@@ -14,7 +14,7 @@ import (
 
 const (
 	assertionClient = "https://chatgpt.com/oauth/client.json"
-	assertionTarget = "https://bridge.example/token"
+	assertionIssuer = "https://bridge.example"
 )
 
 func TestVerifyClientAssertion(t *testing.T) {
@@ -24,7 +24,7 @@ func TestVerifyClientAssertion(t *testing.T) {
 	claims := jwt.Claims{
 		Issuer:   assertionClient,
 		Subject:  assertionClient,
-		Audience: jwt.Audience{assertionTarget},
+		Audience: jwt.Audience{assertionIssuer + "/token"},
 		Expiry:   jwt.NewNumericDate(now.Add(5 * time.Minute)),
 		IssuedAt: jwt.NewNumericDate(now),
 		ID:       "assertion-1",
@@ -36,10 +36,10 @@ func TestVerifyClientAssertion(t *testing.T) {
 		Use:       "sig",
 	}}}
 
-	jti, expiry, err := verifyClientAssertion(keys, assertionClient, assertionTarget, signAssertion(t, signer, claims), now)
-	require.NoError(t, err)
-	assert.Equal(t, "assertion-1", jti)
-	assert.Equal(t, claims.Expiry.Time().Unix(), expiry.Unix())
+	require.NoError(t, verifyClientAssertion(keys, assertionClient, assertionIssuer, signAssertion(t, signer, claims), now), "ChatGPT signs the token endpoint as aud")
+	withIssuer := claims
+	withIssuer.Audience = jwt.Audience{assertionIssuer}
+	require.NoError(t, verifyClientAssertion(keys, assertionClient, assertionIssuer, signAssertion(t, signer, withIssuer), now), "the CIMD draft prefers the issuer as aud")
 
 	for name, change := range map[string]func(*jwt.Claims){
 		"wrong issuer":  func(c *jwt.Claims) { c.Issuer = "https://evil.example/client.json" },
@@ -48,28 +48,17 @@ func TestVerifyClientAssertion(t *testing.T) {
 			c.Audience = jwt.Audience{"https://other.example/token"}
 		},
 		"expired":     func(c *jwt.Claims) { c.Expiry = jwt.NewNumericDate(now.Add(-2 * time.Minute)) },
-		"missing jti": func(c *jwt.Claims) { c.ID = "" },
 		"missing exp": func(c *jwt.Claims) { c.Expiry = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := claims
 			change(&changed)
-			_, _, err := verifyClientAssertion(keys, assertionClient, assertionTarget, signAssertion(t, signer, changed), now)
-			assert.Error(t, err)
+			assert.Error(t, verifyClientAssertion(keys, assertionClient, assertionIssuer, signAssertion(t, signer, changed), now))
 		})
 	}
 
 	otherKey := newAssertionKey(t)
-	_, _, err = verifyClientAssertion(keys, assertionClient, assertionTarget, signAssertion(t, newAssertionSigner(t, otherKey), claims), now)
-	assert.Error(t, err, "an assertion signed by another key must fail")
-}
-
-func TestRememberAssertionRejectsReplay(t *testing.T) {
-	s := &Server{assertionJTIs: map[string]time.Time{}}
-	expiry := time.Now().Add(time.Minute)
-	assert.True(t, s.rememberAssertion(assertionClient, "jti-1", expiry))
-	assert.False(t, s.rememberAssertion(assertionClient, "jti-1", expiry))
-	assert.True(t, s.rememberAssertion(assertionClient, "jti-2", expiry))
+	assert.Error(t, verifyClientAssertion(keys, assertionClient, assertionIssuer, signAssertion(t, newAssertionSigner(t, otherKey), claims), now), "an assertion signed by another key must fail")
 }
 
 func newAssertionKey(t *testing.T) *rsa.PrivateKey {

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -51,28 +50,24 @@ func TestFetchJWKSValidatesAndCaches(t *testing.T) {
 	fetcher := NewFetcher(policy, Options{AllowPrivateAddresses: true, RootCAs: pool, MaxEntries: 2})
 	now := time.Now()
 	fetcher.now = func() time.Time { return now }
-	clientID := server.URL + "/client.json"
 	jwksURI := server.URL + "/jwks.json"
 
-	set, err := fetcher.FetchJWKS(context.Background(), clientID, jwksURI)
+	set, err := fetcher.FetchJWKS(context.Background(), jwksURI)
 	require.NoError(t, err)
 	require.Len(t, set.Keys, 1)
 	assert.Equal(t, "test", set.Keys[0].KeyID)
 	assert.Equal(t, int32(1), fetches.Load())
 
-	_, err = fetcher.FetchJWKS(context.Background(), clientID, jwksURI)
+	_, err = fetcher.FetchJWKS(context.Background(), jwksURI)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), fetches.Load(), "a second lookup must use the cache")
 
 	now = now.Add(jwksTTL + time.Second)
-	_, err = fetcher.FetchJWKS(context.Background(), clientID, jwksURI)
+	_, err = fetcher.FetchJWKS(context.Background(), jwksURI)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), fetches.Load(), "an expired entry must be fetched again")
 
 	for name, uri := range map[string]string{
-		"http":         strings.Replace(jwksURI, "https://", "http://", 1),
-		"other host":   "https://evil.example/jwks.json",
-		"no path":      server.URL,
 		"not found":    server.URL + "/missing.json",
 		"empty set":    server.URL + "/empty.json",
 		"invalid json": server.URL + "/bad.json",
@@ -80,7 +75,7 @@ func TestFetchJWKSValidatesAndCaches(t *testing.T) {
 		"bad status":   server.URL + "/status.json",
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := fetcher.FetchJWKS(context.Background(), clientID, uri)
+			_, err := fetcher.FetchJWKS(context.Background(), uri)
 			assert.Error(t, err)
 		})
 	}

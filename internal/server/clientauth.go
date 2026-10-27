@@ -18,7 +18,6 @@ import (
 const (
 	clientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 	assertionLeeway     = 60 * time.Second
-	maxAssertionJTIs    = 10000
 )
 
 // clientIDFromRequest reads the client_id a token request names before the client's metadata document decides how that client must authenticate
@@ -63,19 +62,14 @@ func (s *Server) authenticateClient(ctx context.Context, r *http.Request, doc *c
 		if assertion == "" {
 			return &tokenError{http.StatusUnauthorized, "invalid_client", "The client assertion is missing."}
 		}
-		keys, err := s.clients.FetchJWKS(ctx, doc.ClientID, doc.JWKSURI)
+		keys, err := s.clients.FetchJWKS(ctx, doc.JWKSURI)
 		if err != nil {
 			s.log.InfoContext(ctx, "Rejected a client assertion", slog.String("client_id", doc.ClientID), slog.Any("error", err))
 			return &tokenError{http.StatusUnauthorized, "invalid_client", cimd.Message(err)}
 		}
-		jti, expiry, err := verifyClientAssertion(keys, doc.ClientID, s.issuer+"/token", assertion, time.Now())
-		if err != nil {
+		if err := verifyClientAssertion(keys, doc.ClientID, s.issuer, assertion, time.Now()); err != nil {
 			s.log.InfoContext(ctx, "Rejected a client assertion", slog.String("client_id", doc.ClientID), slog.Any("error", err))
 			return &tokenError{http.StatusUnauthorized, "invalid_client", "The client assertion is invalid."}
-		}
-		if !s.rememberAssertion(doc.ClientID, jti, expiry) {
-			s.log.InfoContext(ctx, "Rejected a replayed client assertion", slog.String("client_id", doc.ClientID))
-			return &tokenError{http.StatusUnauthorized, "invalid_client", "The client assertion was already used."}
 		}
 		return nil
 	default:
@@ -83,40 +77,38 @@ func (s *Server) authenticateClient(ctx context.Context, r *http.Request, doc *c
 	}
 }
 
-// verifyClientAssertion validates a private_key_jwt assertion (RFC 7523) and returns its jti and expiry for replay protection
-func verifyClientAssertion(keys *jose.JSONWebKeySet, clientID, tokenEndpoint, assertion string, now time.Time) (string, time.Time, error) {
+// verifyClientAssertion validates a private_key_jwt assertion (RFC 7523)
+// Its jti isn't remembered, since the replicas share no state and a replayed assertion is no use without the code and PKCE verifier or the refresh token it came with
+func verifyClientAssertion(keys *jose.JSONWebKeySet, clientID, issuer, assertion string, now time.Time) error {
 	token, err := jwt.ParseSigned(assertion, []jose.SignatureAlgorithm{jose.RS256})
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("parse assertion: %w", err)
+		return fmt.Errorf("parse assertion: %w", err)
 	}
 	if len(token.Headers) != 1 {
-		return "", time.Time{}, errors.New("assertion must have exactly one protected header")
+		return errors.New("assertion must have exactly one protected header")
 	}
 	key, err := assertionKey(keys, token.Headers[0].KeyID)
 	if err != nil {
-		return "", time.Time{}, err
+		return err
 	}
 	var claims jwt.Claims
 	if err = token.Claims(key.Key, &claims); err != nil {
-		return "", time.Time{}, fmt.Errorf("verify assertion: %w", err)
+		return fmt.Errorf("verify assertion: %w", err)
 	}
 	if claims.Expiry == nil {
-		return "", time.Time{}, errors.New("assertion has no exp claim")
+		return errors.New("assertion has no exp claim")
 	}
-	if claims.ID == "" {
-		return "", time.Time{}, errors.New("assertion has no jti claim")
-	}
-	// ChatGPT signs the advertised token endpoint as aud, rather than the issuer, even though CIMD -02 prefers the issuer form
+	// The CIMD draft prefers the issuer as aud, while ChatGPT signs the token endpoint, so both are accepted
 	expected := jwt.Expected{
 		Issuer:      clientID,
 		Subject:     clientID,
-		AnyAudience: jwt.Audience{tokenEndpoint},
+		AnyAudience: jwt.Audience{issuer, issuer + "/token"},
 		Time:        now,
 	}
 	if err = claims.ValidateWithLeeway(expected, assertionLeeway); err != nil {
-		return "", time.Time{}, fmt.Errorf("validate assertion claims: %w", err)
+		return fmt.Errorf("validate assertion claims: %w", err)
 	}
-	return claims.ID, claims.Expiry.Time(), nil
+	return nil
 }
 
 func assertionKey(set *jose.JSONWebKeySet, kid string) (*jose.JSONWebKey, error) {
@@ -138,27 +130,4 @@ func assertionKey(set *jose.JSONWebKeySet, kid string) (*jose.JSONWebKey, error)
 		return &set.Keys[0], nil
 	}
 	return nil, errors.New("the assertion has no key id and the client published several keys")
-}
-
-// rememberAssertion records a jti until its assertion expires, rejecting replays
-// The map is bounded; if it fills with unexpired entries, new assertions are rejected rather than allowing unbounded memory growth
-func (s *Server) rememberAssertion(clientID, jti string, expiry time.Time) bool {
-	now := time.Now()
-	key := clientID + "\x00" + jti
-
-	s.assertionMu.Lock()
-	defer s.assertionMu.Unlock()
-	for k, exp := range s.assertionJTIs {
-		if !now.Before(exp) {
-			delete(s.assertionJTIs, k)
-		}
-	}
-	if _, ok := s.assertionJTIs[key]; ok {
-		return false
-	}
-	if len(s.assertionJTIs) >= maxAssertionJTIs {
-		return false
-	}
-	s.assertionJTIs[key] = expiry.Add(assertionLeeway)
-	return true
 }

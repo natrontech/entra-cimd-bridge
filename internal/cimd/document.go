@@ -102,16 +102,6 @@ func parseDocument(clientID string, body []byte) (*Document, error) {
 	}
 	doc.TokenEndpointAuthMethod = authMethod
 
-	clientURL, err := url.Parse(clientID)
-	if err != nil {
-		return nil, reject("The client_id isn't a valid URL.")
-	}
-	if doc.JWKSURI != "" {
-		if err = validateJWKSURI(clientURL, doc.JWKSURI); err != nil {
-			return nil, err
-		}
-	}
-
 	switch {
 	case doc.ClientID != clientID:
 		return nil, reject("The client's metadata document names a different client_id.")
@@ -134,14 +124,21 @@ func parseDocument(clientID string, body []byte) (*Document, error) {
 	case len(doc.ResponseTypes) > 0 && !slices.Contains(doc.ResponseTypes, "code"):
 		return nil, reject("The client's metadata document doesn't allow the code response type.")
 	}
+	if doc.JWKSURI != "" {
+		if err := validateJWKSURI(clientID, doc.JWKSURI); err != nil {
+			return nil, err
+		}
+	}
 	return &doc, nil
 }
 
-// validateJWKSURI keeps the key set on the same HTTPS origin as the metadata document, so a client can't point the bridge at an unrelated host
-func validateJWKSURI(clientURL *url.URL, raw string) error {
+// validateJWKSURI keeps the key set on the same HTTPS host as the metadata document, so a client can't point the bridge at an unrelated host
+// FetchJWKS relies on it, since it only fetches the jwks_uri of a parsed document
+func validateJWKSURI(clientID, raw string) error {
+	clientURL, clientErr := url.Parse(clientID)
 	u, err := url.Parse(raw)
 	switch {
-	case err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "":
+	case clientErr != nil || err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "":
 		return reject("The client's jwks_uri must be an https URL.")
 	case u.User != nil || strings.Contains(raw, "#"):
 		return reject("The client's jwks_uri must not contain a username, password or fragment.")

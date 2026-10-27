@@ -10,13 +10,7 @@ The bridge has no database, doesn't issue its own tokens and doesn't proxy any M
 
 ### Client authentication
 
-CIMD clients can declare either `token_endpoint_auth_method: none` or
-`token_endpoint_auth_method: private_key_jwt`. ChatGPT's web connector uses the
-latter. For `private_key_jwt`, the client's `jwks_uri` must use HTTPS, stay on
-the same host as its `client_id`, and publish an RS256 signing key. The bridge
-validates the assertion's signature, issuer, subject, audience, expiry and
-`jti`, and rejects replayed assertions. ChatGPT currently signs the advertised
-token-endpoint URL as `aud`; the bridge accepts that exact audience.
+CIMD clients can declare either `token_endpoint_auth_method: none` or `token_endpoint_auth_method: private_key_jwt`. ChatGPT's web connector uses the latter. For `private_key_jwt`, the client's `jwks_uri` must use HTTPS, stay on the same host as its `client_id`, and publish an RS256 signing key. The bridge validates the assertion's signature, issuer, subject, audience and expiry. The audience may be the bridge's issuer or its token endpoint, which ChatGPT uses.
 
 ## How it works
 

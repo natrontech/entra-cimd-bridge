@@ -38,10 +38,9 @@ func TestAuthenticateClientPrivateKeyJWT(t *testing.T) {
 	require.NoError(t, err)
 	fetcher := cimd.NewFetcher(policy, cimd.Options{AllowPrivateAddresses: true, RootCAs: pool})
 	s := &Server{
-		issuer:        "https://bridge.example",
-		clients:       fetcher,
-		log:           slog.Default(),
-		assertionJTIs: map[string]time.Time{},
+		issuer:  "https://bridge.example",
+		clients: fetcher,
+		log:     slog.Default(),
 	}
 	clientID := srv.URL + "/client.json"
 	//nolint:gosec // test-only metadata with no credential
@@ -69,5 +68,4 @@ func TestAuthenticateClientPrivateKeyJWT(t *testing.T) {
 	require.NoError(t, r.ParseForm())
 
 	assert.Nil(t, s.authenticateClient(t.Context(), r, doc))
-	assert.NotNil(t, s.authenticateClient(t.Context(), r, doc), "the same jti must be rejected")
 }
