@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,25 +44,25 @@ func discoveryServer(t *testing.T, extra map[string]any, token func(w http.Respo
 func TestDiscoveryRequiresS256OnlyWhenMethodsAreListed(t *testing.T) {
 	// Entra lists no methods at all and supports S256
 	srv := discoveryServer(t, nil, nil)
-	_, err := Discover(t.Context(), "entra", srv.URL, srv.Client())
+	_, err := Discover(t.Context(), "entra", srv.URL, "", srv.Client())
 	require.NoError(t, err)
 
 	srv = discoveryServer(t, map[string]any{"code_challenge_methods_supported": []string{"plain"}}, nil)
-	_, err = Discover(t.Context(), "plain-only", srv.URL, srv.Client())
+	_, err = Discover(t.Context(), "plain-only", srv.URL, "", srv.Client())
 	require.ErrorContains(t, err, "S256")
 
 	srv = discoveryServer(t, map[string]any{"code_challenge_methods_supported": []string{"plain", "S256"}}, nil)
-	_, err = Discover(t.Context(), "both", srv.URL, srv.Client())
+	_, err = Discover(t.Context(), "both", srv.URL, "", srv.Client())
 	require.NoError(t, err)
 }
 
 func TestDiscoveryRequiresAClientSecretMethodWhenMethodsAreListed(t *testing.T) {
 	srv := discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"private_key_jwt"}}, nil)
-	_, err := Discover(t.Context(), "jwt-only", srv.URL, srv.Client())
+	_, err := Discover(t.Context(), "jwt-only", srv.URL, "", srv.Client())
 	require.ErrorContains(t, err, "client secret")
 
 	srv = discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"private_key_jwt", "client_secret_post"}}, nil)
-	_, err = Discover(t.Context(), "post", srv.URL, srv.Client())
+	_, err = Discover(t.Context(), "post", srv.URL, "", srv.Client())
 	require.NoError(t, err)
 }
 
@@ -74,7 +76,7 @@ func TestTokenSendsCredentialsTheWayTheProviderPrefers(t *testing.T) {
 	creds := Credentials{ClientID: "app", ClientSecret: "s+cret"}
 
 	srv := discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"}}, answer)
-	p, err := Discover(t.Context(), "post", srv.URL, srv.Client())
+	p, err := Discover(t.Context(), "post", srv.URL, "", srv.Client())
 	require.NoError(t, err)
 	tok, err := p.Token(t.Context(), creds, url.Values{"grant_type": {"refresh_token"}})
 	require.NoError(t, err)
@@ -83,7 +85,7 @@ func TestTokenSendsCredentialsTheWayTheProviderPrefers(t *testing.T) {
 	assert.Equal(t, &Token{AccessToken: "at", TokenType: "Bearer", ExpiresIn: 3599, RefreshToken: "rt"}, tok)
 
 	srv = discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"client_secret_basic"}}, answer)
-	p, err = Discover(t.Context(), "basic", srv.URL, srv.Client())
+	p, err = Discover(t.Context(), "basic", srv.URL, "", srv.Client())
 	require.NoError(t, err)
 	_, err = p.Token(t.Context(), creds, url.Values{"grant_type": {"refresh_token"}})
 	require.NoError(t, err)
@@ -94,12 +96,49 @@ func TestTokenSendsCredentialsTheWayTheProviderPrefers(t *testing.T) {
 	assert.False(t, got.PostForm.Has("client_secret"))
 }
 
+func TestDiscoveryWithAFederatedTokenRequiresPrivateKeyJWTWhenMethodsAreListed(t *testing.T) {
+	srv := discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"}}, nil)
+	_, err := Discover(t.Context(), "secret-only", srv.URL, "/token", srv.Client())
+	require.ErrorContains(t, err, "client assertion")
+
+	srv = discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "private_key_jwt"}}, nil)
+	_, err = Discover(t.Context(), "entra", srv.URL, "/token", srv.Client())
+	require.NoError(t, err)
+}
+
+func TestTokenSendsTheCurrentFederatedTokenInsteadOfASecret(t *testing.T) {
+	var got *http.Request
+	srv := discoveryServer(t, map[string]any{"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "private_key_jwt"}}, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		got = r
+		_, _ = w.Write([]byte(`{"access_token":"at"}`))
+	})
+	file := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(file, []byte("first\n"), 0o600))
+	p, err := Discover(t.Context(), "entra", srv.URL, file, srv.Client())
+	require.NoError(t, err)
+
+	_, err = p.Token(t.Context(), Credentials{ClientID: "app"}, url.Values{"grant_type": {"refresh_token"}})
+	require.NoError(t, err)
+	assert.Equal(t, "app", got.PostForm.Get("client_id"))
+	assert.Equal(t, "urn:ietf:params:oauth:client-assertion-type:jwt-bearer", got.PostForm.Get("client_assertion_type"))
+	assert.Equal(t, "first", got.PostForm.Get("client_assertion"))
+	assert.False(t, got.PostForm.Has("client_secret"))
+	_, _, ok := got.BasicAuth()
+	assert.False(t, ok)
+
+	require.NoError(t, os.WriteFile(file, []byte("rotated"), 0o600))
+	_, err = p.Token(t.Context(), Credentials{ClientID: "app"}, url.Values{"grant_type": {"refresh_token"}})
+	require.NoError(t, err)
+	assert.Equal(t, "rotated", got.PostForm.Get("client_assertion"), "the kubelet replaces the token while the bridge runs")
+}
+
 func TestTokenErrors(t *testing.T) {
 	srv := discoveryServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"AADSTS70008: The refresh token has expired.\r\nTrace ID: 1\r\nCorrelation ID: 2"}`))
 	})
-	p, err := Discover(t.Context(), "entra", srv.URL, srv.Client())
+	p, err := Discover(t.Context(), "entra", srv.URL, "", srv.Client())
 	require.NoError(t, err)
 	_, err = p.Token(t.Context(), Credentials{ClientID: "app", ClientSecret: "s"}, url.Values{})
 	status, code, description := TokenError(err)

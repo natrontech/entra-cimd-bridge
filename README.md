@@ -28,7 +28,7 @@ docker run -p 8080:8080 -v ./config.yaml:/etc/bridge/config.yaml:ro \
   ghcr.io/natrontech/entra-cimd-bridge:latest
 ```
 
-Or with the Helm chart. The config goes under `config:` in the values, and the secrets into a Secret set in `existingSecret`. Its keys become environment variables.
+Or with the Helm chart. The config goes under `config:` in the values, and the secrets into a Secret set in `existingSecret`. Its keys become environment variables. The chart mounts the pod's service-account token for `federated_token_file`, so in Kubernetes the bridge needs no client secrets.
 
 ```sh
 helm install entra-cimd-bridge oci://ghcr.io/natrontech/charts/entra-cimd-bridge --values values.yaml
@@ -42,15 +42,16 @@ Replicas only share the signing keys, so you can run as many as you want.
 
 See [`config.example.yaml`](config.example.yaml) for a full example. `${NAME}` in a value is replaced with the environment variable. If the variable isn't set, the bridge doesn't start.
 
-| Key                        |                                                                                                                                                                                                                                                                    |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `issuer`                   | Public URL of the bridge, an https origin without a path. For local development `http://localhost:<port>` works too                                                                                                                                                |
-| `listen`, `metrics_listen` | Default `:8080` and `:9090`. `/metrics` has its own listener so it isn't exposed to the internet                                                                                                                                                                   |
-| `signing_keys`             | Keys with at least 32 bytes, used for the state and the consent cookie. The first key signs, all keys verify. To rotate, add a new key at the top and remove the old one after `consent_ttl`                                                                       |
-| `providers.<name>.issuer`  | The issuer of the IdP, loaded with OIDC discovery at startup. Providers that list `code_challenge_methods_supported` without `S256` are refused (Entra lists nothing but supports S256)                                                                            |
-| `clients.cimd_hosts`       | Hosts that can serve client metadata documents: a host, `*.domain` or `*`. Claude uses `claude.ai`, Codex `chatgpt.com` and VS Code `vscode.dev`. If you remove a host, new sign-ins stop, but existing refresh tokens keep working until you revoke them in Entra |
-| `consent_ttl`              | How long the consent is remembered per client and MCP server, `0` asks every time                                                                                                                                                                                  |
-| `resources`                | One entry per MCP server with its `uri`, a `name` for the consent page, the `provider`, the `client_id` and `client_secret` of its app registration and the `scopes` to request                                                                                    |
+| Key                                     |                                                                                                                                                                                                                                                                                              |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issuer`                                | Public URL of the bridge, an https origin without a path. For local development `http://localhost:<port>` works too                                                                                                                                                                          |
+| `listen`, `metrics_listen`              | Default `:8080` and `:9090`. `/metrics` has its own listener so it isn't exposed to the internet                                                                                                                                                                                             |
+| `signing_keys`                          | Keys with at least 32 bytes, used for the state and the consent cookie. The first key signs, all keys verify. To rotate, add a new key at the top and remove the old one after `consent_ttl`                                                                                                 |
+| `providers.<name>.issuer`               | The issuer of the IdP, loaded with OIDC discovery at startup. Providers that list `code_challenge_methods_supported` without `S256` are refused (Entra lists nothing but supports S256)                                                                                                      |
+| `providers.<name>.federated_token_file` | A token the app registrations trust through a federated identity credential, like the Kubernetes service-account token the chart mounts at `/var/run/secrets/azure/tokens/azure-identity-token`. It's read for every token request and sent as `client_assertion` instead of a client secret |
+| `clients.cimd_hosts`                    | Hosts that can serve client metadata documents: a host, `*.domain` or `*`. Claude uses `claude.ai`, Codex `chatgpt.com` and VS Code `vscode.dev`. If you remove a host, new sign-ins stop, but existing refresh tokens keep working until you revoke them in Entra                           |
+| `consent_ttl`                           | How long the consent is remembered per client and MCP server, `0` asks every time                                                                                                                                                                                                            |
+| `resources`                             | One entry per MCP server with its `uri`, a `name` for the consent page, the `provider`, the `client_id` of its app registration, its `client_secret` if the provider has no `federated_token_file`, and the `scopes` to request                                                              |
 
 The `scope` the client sends is ignored, the bridge always requests the scopes from the config.
 
@@ -61,10 +62,10 @@ The `scope` the client sends is ignored, the bridge always requests the scopes f
 Use the app registration of the MCP server itself (Entra allows an app to request tokens for its own API), or create a separate one that only has permissions on the MCP server's API. Then:
 
 1. Add `https://<bridge>/callback` as a **Web** redirect URI.
-2. Create a client secret for the bridge.
+2. Add a federated identity credential for the bridge's service account: the issuer is your cluster's service account issuer, the subject `system:serviceaccount:<namespace>:<service-account>` and the audience `api://AzureADTokenExchange`. Outside Kubernetes, create a client secret instead.
 3. Make sure the delegated scope, e.g. `api://<client-id>/access_as_user`, has admin consent and `requestedAccessTokenVersion` is 2.
 
-Add the client ID and secret to `resources` in the config.
+Add the client ID (and the secret, if you created one) to `resources` in the config.
 
 ### In the MCP server
 

@@ -18,6 +18,8 @@ config:
   providers:
     entra:
       issuer: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+      # Helm merges this map into yours, so the token the chart mounts (see federatedToken) is only suggested here
+      # federated_token_file: /var/run/secrets/azure/tokens/azure-identity-token
   clients:
     cimd_hosts: [claude.ai, chatgpt.com, vscode.dev]
   consent_ttl: 720h
@@ -26,11 +28,16 @@ config:
   #    name: Contactr
   #    provider: entra
   #    client_id: 11111111-1111-1111-1111-111111111111
-  #    client_secret: ${CONTACTR_CLIENT_SECRET}
+  #    client_secret: ${CONTACTR_CLIENT_SECRET} # only without federated_token_file
   #    scopes: [api://11111111-1111-1111-1111-111111111111/access_as_user, offline_access]
 
-# A Secret whose keys become environment variables, such as BRIDGE_KEY_CURRENT and the client secrets
+# A Secret whose keys become environment variables, such as BRIDGE_KEY_CURRENT and client secrets if a provider has no federated_token_file
 existingSecret: ""
+
+# The pod's service-account token is mounted at /var/run/secrets/azure/tokens/azure-identity-token for providers.<name>.federated_token_file
+# Each app registration trusts it through a federated identity credential with the subject system:serviceaccount:<namespace>:<name>, where the chart names the ServiceAccount like the Deployment
+federatedToken:
+  audience: api://AzureADTokenExchange
 
 # More environment variables for the container
 env: []

@@ -108,6 +108,22 @@ func TestValidation(t *testing.T) {
 	}
 }
 
+func TestFederatedTokenReplacesClientSecrets(t *testing.T) {
+	setSecrets(t)
+	federated := strings.Replace(valid, "/v2.0\n", "/v2.0\n    federated_token_file: /var/run/secrets/azure/tokens/azure-identity-token\n", 1)
+
+	_, err := Parse([]byte(federated))
+	require.ErrorContains(t, err, "resources[0].client_secret: must be empty")
+
+	withoutSecrets := strings.NewReplacer("    client_secret: ${CONTACTR_CLIENT_SECRET}\n", "", "    client_secret: ${OTHER_CLIENT_SECRET}\n", "").Replace(federated)
+	cfg, err := Parse([]byte(withoutSecrets))
+	require.NoError(t, err)
+	assert.Equal(t, "/var/run/secrets/azure/tokens/azure-identity-token", cfg.Providers["entra"].FederatedTokenFile)
+
+	_, err = Parse([]byte(strings.Replace(valid, "    client_secret: ${OTHER_CLIENT_SECRET}\n", "", 1)))
+	require.ErrorContains(t, err, "resources[1].client_secret: is required")
+}
+
 func TestResourceURIs(t *testing.T) {
 	for uri, ok := range map[string]bool{
 		"https://mcp.example.com/mcp":        true,

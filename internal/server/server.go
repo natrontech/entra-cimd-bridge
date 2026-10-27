@@ -107,7 +107,7 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Server, error)
 
 	providers := map[string]*upstream.Provider{}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Providers)) {
-		p, err := upstream.Discover(ctx, name, cfg.Providers[name].Issuer, opts.UpstreamClient)
+		p, err := upstream.Discover(ctx, name, cfg.Providers[name].Issuer, cfg.Providers[name].FederatedTokenFile, opts.UpstreamClient)
 		if err != nil {
 			return nil, err
 		}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,23 +27,25 @@ type Provider struct {
 	AuthorizationEndpoint string
 	TokenEndpoint         string
 
+	// federatedTokenFile holds a token the IdP trusts through a federated identity credential, which the bridge sends instead of a client secret
+	federatedTokenFile string
 	// basicAuth sends the app's credentials in the Authorization header rather than the form
 	basicAuth bool
 	client    *http.Client
 }
 
-// Credentials are an app registration's client ID and secret
+// Credentials are an app registration's client ID and secret, where the secret is empty for a provider with a federated token
 type Credentials struct {
 	ClientID     string
 	ClientSecret string
 }
 
-// Discover loads a provider through OIDC discovery and checks that it can bind codes to a PKCE challenge with S256
-func Discover(ctx context.Context, name, issuer string, client *http.Client) (*Provider, error) {
+// Discover loads a provider through OIDC discovery and checks that it can bind codes to a PKCE challenge with S256 and accepts the way the bridge authenticates
+func Discover(ctx context.Context, name, issuer, federatedTokenFile string, client *http.Client) (*Provider, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	p, err := oidc.NewProvider(oidc.ClientContext(ctx, client), issuer)
+	discovered, err := oidc.NewProvider(oidc.ClientContext(ctx, client), issuer)
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: discovery: %w", name, err)
 	}
@@ -50,7 +53,7 @@ func Discover(ctx context.Context, name, issuer string, client *http.Client) (*P
 		CodeChallengeMethods     []string `json:"code_challenge_methods_supported"`
 		TokenEndpointAuthMethods []string `json:"token_endpoint_auth_methods_supported"`
 	}
-	if err := p.Claims(&claims); err != nil {
+	if err := discovered.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("provider %s: discovery: %w", name, err)
 	}
 
@@ -58,25 +61,35 @@ func Discover(ctx context.Context, name, issuer string, client *http.Client) (*P
 	if len(claims.CodeChallengeMethods) > 0 && !slices.Contains(claims.CodeChallengeMethods, "S256") {
 		return nil, fmt.Errorf("provider %s doesn't support PKCE with S256, it only lists %s", name, strings.Join(claims.CodeChallengeMethods, ", "))
 	}
-	endpoint := p.Endpoint()
+	endpoint := discovered.Endpoint()
 	if endpoint.AuthURL == "" || endpoint.TokenURL == "" {
 		return nil, fmt.Errorf("provider %s: discovery lists no authorization or token endpoint", name)
 	}
 
-	// Without a list, RFC 8414 makes client_secret_basic the default, while a list without either secret method rules a provider out like one without S256
-	methods := claims.TokenEndpointAuthMethods
-	if len(methods) > 0 && !slices.Contains(methods, "client_secret_basic") && !slices.Contains(methods, "client_secret_post") {
-		return nil, fmt.Errorf("provider %s doesn't accept a client secret, it only lists %s", name, strings.Join(methods, ", "))
-	}
-	basic := len(methods) == 0 || (slices.Contains(methods, "client_secret_basic") && !slices.Contains(methods, "client_secret_post"))
-	return &Provider{
+	p := &Provider{
 		Name:                  name,
 		Issuer:                issuer,
 		AuthorizationEndpoint: endpoint.AuthURL,
 		TokenEndpoint:         endpoint.TokenURL,
-		basicAuth:             basic,
+		federatedTokenFile:    federatedTokenFile,
 		client:                client,
-	}, nil
+	}
+
+	// A federated token is a JWT client assertion, which providers list as private_key_jwt, and a list without it rules a provider out like one without S256
+	methods := claims.TokenEndpointAuthMethods
+	if federatedTokenFile != "" {
+		if len(methods) > 0 && !slices.Contains(methods, "private_key_jwt") {
+			return nil, fmt.Errorf("provider %s doesn't accept a client assertion, it only lists %s", name, strings.Join(methods, ", "))
+		}
+		return p, nil
+	}
+
+	// Without a list, RFC 8414 makes client_secret_basic the default, while a list without either secret method rules a provider out
+	if len(methods) > 0 && !slices.Contains(methods, "client_secret_basic") && !slices.Contains(methods, "client_secret_post") {
+		return nil, fmt.Errorf("provider %s doesn't accept a client secret, it only lists %s", name, strings.Join(methods, ", "))
+	}
+	p.basicAuth = len(methods) == 0 || (slices.Contains(methods, "client_secret_basic") && !slices.Contains(methods, "client_secret_post"))
+	return p, nil
 }
 
 // AuthorizationURL is the provider's authorization endpoint with params added to its query
@@ -128,7 +141,16 @@ func (e *Error) Error() string {
 // Token sends a token request to the provider with the app's credentials added
 func (p *Provider) Token(ctx context.Context, creds Credentials, form url.Values) (*Token, error) {
 	form.Set("client_id", creds.ClientID)
-	if !p.basicAuth {
+	switch {
+	case p.federatedTokenFile != "":
+		// The file is read for every request, since the kubelet replaces the token before it expires
+		assertion, err := os.ReadFile(p.federatedTokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("federated token for %s: %w", p.Name, err)
+		}
+		form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+		form.Set("client_assertion", strings.TrimSpace(string(assertion)))
+	case !p.basicAuth:
 		form.Set("client_secret", creds.ClientSecret)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.TokenEndpoint, strings.NewReader(form.Encode()))

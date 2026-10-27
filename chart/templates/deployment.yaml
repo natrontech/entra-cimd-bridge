@@ -26,6 +26,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "bridge.fullname" . }}
       automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -66,10 +67,20 @@ spec:
             - name: config
               mountPath: /etc/bridge
               readOnly: true
+            - name: federated-token
+              mountPath: /var/run/secrets/azure/tokens
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: {{ include "bridge.fullname" . }}
+        - name: federated-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: azure-identity-token
+                  audience: {{ .Values.federatedToken.audience }}
+                  expirationSeconds: 3600
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -38,6 +38,8 @@ type Config struct {
 // Provider is an OpenID provider, found through OIDC discovery
 type Provider struct {
 	Issuer string `yaml:"issuer"`
+	// FederatedTokenFile is a token the IdP trusts through a federated identity credential, like a Kubernetes service-account token, which the bridge sends instead of client secrets
+	FederatedTokenFile string `yaml:"federated_token_file"`
 }
 
 // Clients is the trust policy for MCP clients
@@ -53,8 +55,9 @@ type Resource struct {
 	// Name is shown on the consent page
 	Name     string `yaml:"name"`
 	Provider string `yaml:"provider"`
-	// ClientID and ClientSecret are the app registration's credentials, which no other resource may share
-	ClientID     string `yaml:"client_id"`
+	// ClientID is the app registration, which no other resource may share
+	ClientID string `yaml:"client_id"`
+	// ClientSecret is the app registration's secret, for a provider without a federated token
 	ClientSecret string `yaml:"client_secret"`
 	// Scopes are requested from the IdP whatever scope the client asked for
 	Scopes []string `yaml:"scopes"`
@@ -187,11 +190,18 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(r.Name) == "" {
 			fail("%s.name: is required, it is shown on the consent page", at)
 		}
-		if _, ok := c.Providers[r.Provider]; !ok {
+		provider, ok := c.Providers[r.Provider]
+		if !ok {
 			fail("%s.provider: %q isn't one of the providers", at, r.Provider)
 		}
-		if r.ClientID == "" || r.ClientSecret == "" {
-			fail("%s: client_id and client_secret are required", at)
+		if r.ClientID == "" {
+			fail("%s.client_id: is required", at)
+		}
+		switch {
+		case ok && provider.FederatedTokenFile != "" && r.ClientSecret != "":
+			fail("%s.client_secret: must be empty, provider %s signs in with its federated_token_file", at, r.Provider)
+		case ok && provider.FederatedTokenFile == "" && r.ClientSecret == "":
+			fail("%s.client_secret: is required, unless provider %s has a federated_token_file", at, r.Provider)
 		}
 		if other, ok := clientIDs[r.ClientID]; ok && r.ClientID != "" {
 			// A shared app would let a code or refresh token issued for one MCP server be redeemed for the other

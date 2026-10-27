@@ -15,6 +15,9 @@ signing_keys:
 providers:
   entra:
     issuer: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+    # A token the app registrations trust through a federated identity credential, sent instead of client secrets
+    # The Helm chart mounts the pod's service-account token here, leave it out to use client_secret instead
+    federated_token_file: /var/run/secrets/azure/tokens/azure-identity-token
 
 clients:
   # Hosts whose client metadata documents are accepted: a host, *.domain, or * for any
@@ -30,7 +33,8 @@ resources:
     name: Contactr
     provider: entra
     client_id: ${CONTACTR_CLIENT_ID}
-    client_secret: ${CONTACTR_CLIENT_SECRET}
+    # Only for a provider without a federated_token_file
+    # client_secret: ${CONTACTR_CLIENT_SECRET}
     scopes:
       - api://${CONTACTR_CLIENT_ID}/access_as_user
       - offline_access
