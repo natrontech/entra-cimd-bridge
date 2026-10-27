@@ -8,6 +8,10 @@ The bridge sits in front of Entra ID (or another OIDC provider) and is the autho
 
 The bridge has no database, doesn't issue its own tokens and doesn't proxy any MCP traffic.
 
+### Client authentication
+
+CIMD clients can declare either `token_endpoint_auth_method: none` or `token_endpoint_auth_method: private_key_jwt`. ChatGPT's web connector uses the latter. For `private_key_jwt`, the client's `jwks_uri` must use HTTPS, stay on the same host as its `client_id`, and publish an RS256 signing key. The bridge validates the assertion's signature, issuer, subject, audience and expiry. The audience may be the bridge's issuer or its token endpoint, which ChatGPT uses.
+
 ## How it works
 
 If you want to understand the flow, here's a diagram showing how the bridge interacts with the MCP client and Entra ID.

@@ -39,7 +39,7 @@ func TestMetadata(t *testing.T) {
 			"response_types_supported":                       []any{"code"},
 			"response_modes_supported":                       []any{"query"},
 			"grant_types_supported":                          []any{"authorization_code", "refresh_token"},
-			"token_endpoint_auth_methods_supported":          []any{"none"},
+			"token_endpoint_auth_methods_supported":          []any{"none", "private_key_jwt"},
 			"code_challenge_methods_supported":               []any{"S256"},
 			"client_id_metadata_document_supported":          true,
 			"authorization_response_iss_parameter_supported": true,

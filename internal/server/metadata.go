@@ -34,7 +34,7 @@ func (s *Server) authorizationServerMetadata() authorizationServerMetadata {
 		ResponseTypesSupported:                     []string{"code"},
 		ResponseModesSupported:                     []string{"query"},
 		GrantTypesSupported:                        []string{"authorization_code", "refresh_token"},
-		TokenEndpointAuthMethodsSupported:          []string{"none"},
+		TokenEndpointAuthMethodsSupported:          []string{"none", "private_key_jwt"},
 		CodeChallengeMethodsSupported:              []string{"S256"},
 		ClientIDMetadataDocumentSupported:          true,
 		AuthorizationResponseIssParameterSupported: true,

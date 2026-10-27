@@ -54,6 +54,9 @@ type Fetcher struct {
 
 	mu      sync.Mutex
 	entries map[string]entry
+
+	jwksMu      sync.Mutex
+	jwksEntries map[string]jwksEntry
 }
 
 type entry struct {
@@ -82,7 +85,7 @@ func NewFetcher(policy Policy, opts Options) *Fetcher {
 		opts.Observe = func(string) {}
 	}
 
-	f := &Fetcher{policy: policy, opts: opts, now: time.Now, entries: map[string]entry{}, refuse: refusePrivate}
+	f := &Fetcher{policy: policy, opts: opts, now: time.Now, entries: map[string]entry{}, jwksEntries: map[string]jwksEntry{}, refuse: refusePrivate}
 	if opts.AllowPrivateAddresses {
 		f.refuse = func(netip.AddrPort) bool { return false }
 	}

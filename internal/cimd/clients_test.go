@@ -41,6 +41,13 @@ var knownClients = []knownClient{
 		redirects: []string{"http://127.0.0.1:61234/callback", "http://localhost:61234/callback"},
 	},
 	{
+		// ChatGPT's web connector authenticates with private_key_jwt
+		name:      "ChatGPT",
+		clientID:  "https://chatgpt.com/oauth/client.json",
+		fixture:   "chatgpt.json",
+		redirects: []string{"https://chatgpt.com/connector_platform_oauth_redirect"},
+	},
+	{
 		name:      "VS Code",
 		clientID:  "https://vscode.dev/oauth/client-metadata.json",
 		fixture:   "vscode.json",
