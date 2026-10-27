@@ -6,12 +6,24 @@ coverage-summary.txt
 /config.yaml
 .env
 .env.*
+!.env.example
 
 # Helm
 /chart/*/charts/
 *.tgz
 
-# OS and editors
+# OS files
 .DS_Store
-.idea/
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.Spotlight-V100/
+.Trashes/
+._*
+
+# Editor / IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
